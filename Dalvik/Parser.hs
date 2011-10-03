@@ -1,4 +1,4 @@
-module Dalvik where
+module Dalvik.Parser where
 
 import Control.Applicative
 import Control.Monad
@@ -49,24 +49,39 @@ loadDexIO :: String -> IO (Either String DexFile)
 loadDexIO f = loadDex <$> BS.readFile f
 
 loadDex :: BS.ByteString -> Either String DexFile
-loadDex = runGet parseDexFile
+loadDex bs = do
+  h <- runGet parseDexHeader bs
+  doSection (dexMapOff h) 0 parseMap bs
+  doSection (dexOffStrings h) (dexNumStrings h) parseStrings bs
+  doSection (dexOffTypes h) (dexNumTypes h) parseTypes bs
+  doSection (dexOffProtos h) (dexNumProtos h) parseProtos bs
+  doSection (dexOffFields h) (dexNumFields h) parseFields bs
+  doSection (dexOffMethods h) (dexNumMethods h) parseMethods bs
+  doSection (dexOffClassDefs h) (dexNumClassDefs h) parseClassDefs bs
+  doSection (dexDataOff h) (dexDataSize h) parseData bs
+  doSection (dexLinkOff h) (dexLinkSize h) parseLinkInfo bs
+  return $ DexFile h
 
-parseDexFile :: Get DexFile
-parseDexFile = DexFile <$> parseDexHeader
+doSection :: Word32 -> Word32 -> (Word32 -> Get a) -> BS.ByteString
+          -> Either String a
+doSection off size p = runGet (p size) . BS.drop (fromIntegral off)
+
+{- Header parsing -}
 
 parseDexHeader :: Get DexHeader
 parseDexHeader = do
   magic <- getBytes 4
-  guard (magic == s "dex\n")
+  unless (magic == s "dex\n") $ fail "Invalid magic string"
   version <- getBytes 4
-  guard (version == s "035\0")
+  unless (version == s "035\0") $ fail "Unsupported version"
   checksum <- getWord32le
   sha1 <- BS.unpack <$> getBytes 20
   fileLen <- getWord32le
   hdrLen <- getWord32le
-  guard (hdrLen == 112)
+  unless (hdrLen == 112) $ fail "Invalid header length"
   endianTag <- getWord32le
-  guard (endianTag == 0x12345678) -- TODO: support 0x78563412
+  -- TODO: support 0x78563412
+  unless (endianTag == 0x12345678) $ fail "Unsupported endianness"
   linkSize <- getWord32le
   linkOff <- getWord32le
   mapOff <- getWord32le
@@ -110,8 +125,63 @@ parseDexHeader = do
            , dexDataOff = dataOff
            }
 
+{- Section parsing -}
+
+parseMap :: Word32 -> Get ()
+parseMap _ = do
+  size <- getWord32le
+  items <- replicateM (fromIntegral size) parseMapItem
+  return ()
+
+parseMapItem :: Get ()
+parseMapItem = do
+  itemType <- getWord16le
+  unused <- getWord16le
+  itemSize <- getWord32le
+  itemOff <- getWord32le
+  return ()
+
+parseStrings :: Word32 -> Get ()
+parseStrings size = return () -- TODO
+
+parseStringDataItem :: Get ()
+parseStringDataItem = do
+  len <- getULEB128
+  str <- getString
+  return ()
+
+getString :: Get [Word8]
+getString = do
+  b <- getWord8
+  if b == 0 then return [] else (b:) <$> getString
+
+parseTypes :: Word32 -> Get ()
+parseTypes size = return () -- TODO
+
+parseProtos :: Word32 -> Get ()
+parseProtos size = return () -- TODO
+
+parseFields :: Word32 -> Get ()
+parseFields size = return () -- TODO
+
+parseMethods :: Word32 -> Get ()
+parseMethods size = return () -- TODO
+
+parseClassDefs :: Word32 -> Get ()
+parseClassDefs size = return () -- TODO
+
+parseData :: Word32 -> Get ()
+parseData size = return () -- TODO
+
+parseLinkInfo :: Word32 -> Get ()
+parseLinkInfo size = return () -- TODO
+
+{- Utility functions -}
+
 s :: String -> BS.ByteString
 s = BS.pack . map toEnum . map fromEnum
+
+{- LEB128 decoding -}
 
 getSLEB128 :: Get Int32
 getSLEB128 = do
