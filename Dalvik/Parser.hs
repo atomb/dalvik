@@ -5,8 +5,14 @@ import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Int
+import qualified Data.Map as Map
+import Data.Map (Map)
 import Data.Serialize.Get
 import Data.Word
+
+import Debug.Trace
+
+import Dalvik.Instruction
 
 {-
 Based on documentation from:
@@ -40,9 +46,16 @@ data DexHeader =
   , dexDataOff      :: Word32
   } deriving (Show)
 
+data StringDataItem = SDI Word32 [Word8]
+  deriving (Show)
+
+showSDI :: StringDataItem -> String
+showSDI (SDI _ str) = show (BS.pack str)
+
 data DexFile =
   DexFile
-  { dexHeader :: DexHeader
+  { dexHeader       :: DexHeader
+  , dexStrings      :: Map Word32 StringDataItem
   } deriving (Show)
 
 loadDexIO :: String -> IO (Either String DexFile)
@@ -52,7 +65,7 @@ loadDex :: BS.ByteString -> Either String DexFile
 loadDex bs = do
   h <- runGet parseDexHeader bs
   doSection (dexMapOff h) 0 parseMap bs
-  doSection (dexOffStrings h) (dexNumStrings h) parseStrings bs
+  strings <- doSection (dexOffStrings h) (dexNumStrings h) parseStrings bs
   doSection (dexOffTypes h) (dexNumTypes h) parseTypes bs
   doSection (dexOffProtos h) (dexNumProtos h) parseProtos bs
   doSection (dexOffFields h) (dexNumFields h) parseFields bs
@@ -60,11 +73,16 @@ loadDex bs = do
   doSection (dexOffClassDefs h) (dexNumClassDefs h) parseClassDefs bs
   doSection (dexDataOff h) (dexDataSize h) parseData bs
   doSection (dexLinkOff h) (dexLinkSize h) parseLinkInfo bs
-  return $ DexFile h
+  return $ DexFile
+           { dexHeader = h
+           , dexStrings = Map.fromList strings
+           }
 
-doSection :: Word32 -> Word32 -> (Word32 -> Get a) -> BS.ByteString
+doSection :: Word32 -> Word32 -> (BS.ByteString -> Word32 -> Get a)
+          -> BS.ByteString
           -> Either String a
-doSection off size p = runGet (p size) . BS.drop (fromIntegral off)
+doSection off size p bs =
+  runGet (p bs size) $ BS.drop (fromIntegral off) bs
 
 {- Header parsing -}
 
@@ -127,8 +145,8 @@ parseDexHeader = do
 
 {- Section parsing -}
 
-parseMap :: Word32 -> Get ()
-parseMap _ = do
+parseMap :: BS.ByteString -> Word32 -> Get ()
+parseMap _ _ = do
   size <- getWord32le
   items <- replicateM (fromIntegral size) parseMapItem
   return ()
@@ -141,40 +159,82 @@ parseMapItem = do
   itemOff <- getWord32le
   return ()
 
-parseStrings :: Word32 -> Get ()
-parseStrings size = return () -- TODO
+liftEither :: Either String a -> Get a
+liftEither (Left err) = fail err
+liftEither (Right a) = return a
 
-parseStringDataItem :: Get ()
+subGet bs off p = liftEither $ runGet p $ BS.drop (fromIntegral off) bs
+
+parseStrings :: BS.ByteString -> Word32 -> Get [(Word32, StringDataItem)]
+parseStrings bs size = do
+  offs <- replicateM (fromIntegral size) getWord32le
+  strs <- mapM (\off -> subGet bs off parseStringDataItem) offs
+  return $ zip [0..size] strs
+
+parseStringDataItem :: Get StringDataItem
 parseStringDataItem = do
   len <- getULEB128
   str <- getString
-  return ()
+  return $ SDI len str
 
 getString :: Get [Word8]
 getString = do
   b <- getWord8
   if b == 0 then return [] else (b:) <$> getString
 
-parseTypes :: Word32 -> Get ()
-parseTypes size = return () -- TODO
+parseTypes :: BS.ByteString -> Word32 -> Get [Word32]
+parseTypes bs size = replicateM (fromIntegral size) getWord32le
 
-parseProtos :: Word32 -> Get ()
-parseProtos size = return () -- TODO
+parseProtos :: BS.ByteString -> Word32 -> Get [()]
+parseProtos bs size = replicateM (fromIntegral size) parseProto
 
-parseFields :: Word32 -> Get ()
-parseFields size = return () -- TODO
+parseProto :: Get ()
+parseProto = do
+  tyDescId <- getWord32le
+  retTyId <- getWord32le
+  paramListId <- getWord32le
+  return ()
 
-parseMethods :: Word32 -> Get ()
-parseMethods size = return () -- TODO
+parseFields :: BS.ByteString -> Word32 -> Get [()]
+parseFields bs size = replicateM (fromIntegral size) parseField
 
-parseClassDefs :: Word32 -> Get ()
-parseClassDefs size = return () -- TODO
+parseField :: Get ()
+parseField = do
+  classId <- getWord16le
+  fieldTypeId <- getWord16le
+  classNameId <- getWord32le
+  return ()
 
-parseData :: Word32 -> Get ()
-parseData size = return () -- TODO
+parseMethods :: BS.ByteString -> Word32 -> Get [()]
+parseMethods bs size = replicateM (fromIntegral size) parseMethod
 
-parseLinkInfo :: Word32 -> Get ()
-parseLinkInfo size = return () -- TODO
+parseMethod :: Get ()
+parseMethod = do
+  classId <- getWord16le
+  protoId <- getWord16le
+  nameId  <- getWord16le
+  return ()
+
+parseClassDefs :: BS.ByteString -> Word32 -> Get [()]
+parseClassDefs bs size = replicateM (fromIntegral size) parseClassDef
+
+parseClassDef :: Get ()
+parseClassDef = do
+  classId <- getWord32le
+  accessFlags <- getWord32le
+  superclassId <- getWord32le
+  interfacesOff <- getWord32le
+  sourceNameId <- getWord32le
+  annotationsOff <- getWord32le
+  classDataOff <- getWord32le
+  staticValuesOff <- getWord32le
+  return ()
+
+parseData :: BS.ByteString -> Word32 -> Get BS.ByteString
+parseData bs size = getByteString (fromIntegral size)
+
+parseLinkInfo :: BS.ByteString -> Word32 -> Get BS.ByteString
+parseLinkInfo bs size = getByteString (fromIntegral size)
 
 {- Utility functions -}
 
