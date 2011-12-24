@@ -46,8 +46,42 @@ data DexHeader =
   , dexDataOff      :: Word32
   } deriving (Show)
 
+
+data MapItem
+  = MapItem {
+      itemType :: Word16
+    , itemSize :: Word32
+    , itemOff  :: Word32
+    }
+
 data StringDataItem = SDI Word32 [Word8]
   deriving (Show)
+
+data Field
+  = Field {
+      fieldClassId :: ClassId
+    , fieldTypeId  :: TypeId
+    , fieldNameId  :: StringId
+    }
+
+data Method
+  = Method {
+      methClassId  :: ClassId
+    , methProtoId  :: ProtoId
+    , methNameId   :: StringId
+    }
+
+data Class
+  = Class
+    { classId :: ClassId
+    , classAccessFlags :: AccessFlags
+    , classSuperId :: ClassId
+    , classIntfsOff :: Word32
+    , classSourceNameId :: StringId
+    , classAnnotsOff :: Word32
+    , classDataOff :: Word32
+    , classStaticValuesOff :: Word32
+    }
 
 showSDI :: StringDataItem -> String
 showSDI (SDI _ str) = show (BS.pack str)
@@ -64,15 +98,16 @@ loadDexIO f = loadDex <$> BS.readFile f
 loadDex :: BS.ByteString -> Either String DexFile
 loadDex bs = do
   h <- runGet parseDexHeader bs
-  doSection (dexMapOff h) 0 parseMap bs
-  strings <- doSection (dexOffStrings h) (dexNumStrings h) parseStrings bs
-  doSection (dexOffTypes h) (dexNumTypes h) parseTypes bs
-  doSection (dexOffProtos h) (dexNumProtos h) parseProtos bs
-  doSection (dexOffFields h) (dexNumFields h) parseFields bs
-  doSection (dexOffMethods h) (dexNumMethods h) parseMethods bs
-  doSection (dexOffClassDefs h) (dexNumClassDefs h) parseClassDefs bs
-  doSection (dexDataOff h) (dexDataSize h) parseData bs
-  doSection (dexLinkOff h) (dexLinkSize h) parseLinkInfo bs
+  itemMap  <- doSection (dexMapOff h) 0 parseMap bs
+  strings  <- doSection (dexOffStrings h) (dexNumStrings h) parseStrings bs
+  types    <- doSection (dexOffTypes h) (dexNumTypes h) parseTypes bs
+  protos   <- doSection (dexOffProtos h) (dexNumProtos h) parseProtos bs
+  fields   <- doSection (dexOffFields h) (dexNumFields h) parseFields bs
+  methods  <- doSection (dexOffMethods h) (dexNumMethods h) parseMethods bs
+  classes  <- doSection (dexOffClassDefs h) (dexNumClassDefs h)
+                        parseClassDefs bs
+  ddata    <- doSection (dexDataOff h) (dexDataSize h) parseData bs
+  linkInfo <- doSection (dexLinkOff h) (dexLinkSize h) parseLinkInfo bs
   return $ DexFile
            { dexHeader = h
            , dexStrings = Map.fromList strings
@@ -145,19 +180,19 @@ parseDexHeader = do
 
 {- Section parsing -}
 
-parseMap :: BS.ByteString -> Word32 -> Get ()
+parseMap :: BS.ByteString -> Word32 -> Get (Map Word32 MapItem)
 parseMap _ _ = do
   size <- getWord32le
   items <- replicateM (fromIntegral size) parseMapItem
-  return ()
+  return . Map.fromList . zip [0..] $ items
 
-parseMapItem :: Get ()
+parseMapItem :: Get MapItem
 parseMapItem = do
   itemType <- getWord16le
   unused <- getWord16le
   itemSize <- getWord32le
   itemOff <- getWord32le
-  return ()
+  return $ MapItem itemType itemSize itemOff
 
 liftEither :: Either String a -> Get a
 liftEither (Left err) = fail err
@@ -195,40 +230,63 @@ parseProto = do
   paramListId <- getWord32le
   return ()
 
-parseFields :: BS.ByteString -> Word32 -> Get [()]
-parseFields bs size = replicateM (fromIntegral size) parseField
+parseFields :: BS.ByteString -> Word32 -> Get (Map FieldId Field)
+parseFields bs size = do
+  fields <- replicateM (fromIntegral size) parseField
+  return . Map.fromList . zip [0..] $ fields
 
-parseField :: Get ()
+parseField :: Get Field
 parseField = do
   classId <- getWord16le
-  fieldTypeId <- getWord16le
-  classNameId <- getWord32le
-  return ()
+  typeId  <- getWord16le
+  nameId  <- getWord32le
+  return $ Field
+           { fieldClassId = classId
+           , fieldTypeId  = typeId
+           , fieldNameId  = nameId
+           }
 
-parseMethods :: BS.ByteString -> Word32 -> Get [()]
-parseMethods bs size = replicateM (fromIntegral size) parseMethod
+parseMethods :: BS.ByteString -> Word32 -> Get (Map MethodId Method)
+parseMethods bs size = do
+  methods <- replicateM (fromIntegral size) parseMethod
+  return . Map.fromList . zip [0..] $ methods
 
-parseMethod :: Get ()
+parseMethod :: Get Method
 parseMethod = do
   classId <- getWord16le
   protoId <- getWord16le
-  nameId  <- getWord16le
-  return ()
+  nameId  <- getWord32le
+  return $ Method
+           { methClassId = classId
+           , methProtoId = protoId
+           , methNameId  = nameId
+           }
 
-parseClassDefs :: BS.ByteString -> Word32 -> Get [()]
-parseClassDefs bs size = replicateM (fromIntegral size) parseClassDef
+parseClassDefs :: BS.ByteString -> Word32 -> Get (Map ClassId Class)
+parseClassDefs bs size = do
+  classes <- replicateM (fromIntegral size) parseClassDef
+  return . Map.fromList . zip [0..] $ classes
 
-parseClassDef :: Get ()
+parseClassDef :: Get Class
 parseClassDef = do
-  classId <- getWord32le
-  accessFlags <- getWord32le
-  superclassId <- getWord32le
-  interfacesOff <- getWord32le
-  sourceNameId <- getWord32le
-  annotationsOff <- getWord32le
-  classDataOff <- getWord32le
+  classId         <- getWord32le
+  accessFlags     <- getWord32le
+  superclassId    <- getWord32le
+  interfacesOff   <- getWord32le
+  sourceNameId    <- getWord32le
+  annotationsOff  <- getWord32le
+  dataOff         <- getWord32le
   staticValuesOff <- getWord32le
-  return ()
+  return $ Class
+           { classId = fromIntegral classId -- TODO: can this lose information?
+           , classAccessFlags = accessFlags
+           , classSuperId = fromIntegral superclassId -- TODO: ditto
+           , classIntfsOff = interfacesOff
+           , classSourceNameId = sourceNameId
+           , classAnnotsOff = annotationsOff
+           , classDataOff = dataOff
+           , classStaticValuesOff = staticValuesOff
+           }
 
 parseData :: BS.ByteString -> Word32 -> Get BS.ByteString
 parseData bs size = getByteString (fromIntegral size)

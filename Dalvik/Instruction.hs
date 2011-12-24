@@ -9,9 +9,12 @@ import Data.Word
 
 type FieldId = Word16
 type MethodId = Word16
-type StringId = Word16
+type StringId = Word32
 type StringIdJumbo = Word32
 type TypeId = Word16
+type ClassId = Word16
+type ProtoId = Word16
+type AccessFlags = Word32
 
 type Word4 = Word8
 
@@ -34,7 +37,7 @@ data ConstArg
   | ConstWide Word64
   | ConstWideHigh16 Int16
   | ConstString StringId
-  | ConstStringJumbo StringIdJumbo
+  | ConstStringJumbo StringId
   | ConstClass TypeId
 
 -- TODO: what's the best encoding for move instructions?
@@ -216,7 +219,7 @@ iparseTable = array (0x00, 0xFF) $
      LoadConst (r8 rp) (ConstWide (combine16' w1 w2 w3 w4)))
   , (0x19, \rp -> i2 $ \w1    -> i $
      LoadConst (r8 rp) (ConstWideHigh16 (fromIntegral w1)))
-  , (0x1a, \rp -> i2 $ \w1    -> i $ LoadConst (r8 rp) (ConstString w1))
+  , (0x1a, \rp -> i2 $ \w1    -> i $ LoadConst (r8 rp) (ConstString (fromIntegral w1)))
   , (0x1b, \rp -> i3 $ \w1 w2 -> i $
      LoadConst (r8 rp) (ConstStringJumbo (combine16 w1 w2)))
   , (0x1c, \rp -> i2 $ \w1    -> i $ LoadConst (r8 rp) (ConstClass w1))
