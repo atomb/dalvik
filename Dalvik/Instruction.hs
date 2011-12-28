@@ -23,6 +23,7 @@ data Reg
   = R4 Reg4
   | R8 Reg8
   | R16 Reg16
+    deriving (Show)
 
 data ConstArg
   = Const4 Int8
@@ -36,6 +37,7 @@ data ConstArg
   | ConstString StringId
   | ConstStringJumbo StringId
   | ConstClass TypeId
+    deriving (Show)
 
 -- TODO: what's the best encoding for move instructions?
 
@@ -43,12 +45,14 @@ data MoveType
   = MNormal
   | MWide
   | MObject
+    deriving (Show)
 
 data Move1Type
   = MResult
   | MResultWide
   | MResultObject
   | MException
+    deriving (Show)
 
 data AccessType
   = AWide
@@ -57,10 +61,12 @@ data AccessType
   | AByte
   | AChar
   | AShort
+    deriving (Show)
 
 data AccessOp
   = Get (Maybe AccessType)
   | Put (Maybe AccessType)
+    deriving (Show)
 
 data InvokeKind
   = Virtual
@@ -68,6 +74,7 @@ data InvokeKind
   | Direct
   | Static
   | Interface
+    deriving (Show)
 
 data CType
   = Byte
@@ -77,6 +84,7 @@ data CType
   | Long
   | Float
   | Double
+    deriving (Show)
 
 data CmpOp
   = CLFloat
@@ -84,6 +92,7 @@ data CmpOp
   | CLDouble
   | CGDouble
   | CLong
+    deriving (Show)
 
 data IfOp
   = Eq
@@ -92,6 +101,7 @@ data IfOp
   | Ge
   | Gt
   | Le
+    deriving (Show)
 
 data Unop
   = NegInt
@@ -101,6 +111,7 @@ data Unop
   | NegFloat
   | NegDouble
   | Convert CType CType
+    deriving (Show)
 
 data Binop
   = Add
@@ -115,6 +126,7 @@ data Binop
   | Shr
   | UShr
   | RSub
+    deriving (Show)
 
 data Instruction
   = Nop
@@ -154,6 +166,7 @@ data Instruction
   | FBinopAssign Binop Bool Reg4 Reg4
   | BinopLit16 Binop Reg4 Reg4 Int16
   | BinopLit8 Binop Reg8 Reg8 Int8
+    deriving (Show)
 
 splitWord8 :: Word8 -> (Word4, Word4)
 splitWord8 w = (fromIntegral $ w `shiftR` 4, fromIntegral $ w .&. 0x0F)
