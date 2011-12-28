@@ -12,9 +12,6 @@ type MethodId = Word16
 type StringId = Word32
 type StringIdJumbo = Word32
 type TypeId = Word16
-type ClassId = Word16
-type ProtoId = Word16
-type AccessFlags = Word32
 
 type Word4 = Word8
 

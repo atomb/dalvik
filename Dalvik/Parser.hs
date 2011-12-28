@@ -46,6 +46,9 @@ data DexHeader =
   , dexDataOff      :: Word32
   } deriving (Show)
 
+type ProtoId = Word16
+type ParamListId = Word32
+type AccessFlags = Word32
 
 data MapItem
   = MapItem {
@@ -59,28 +62,71 @@ data StringDataItem = SDI Word32 [Word8]
 
 data Field
   = Field {
-      fieldClassId :: ClassId
+      fieldClassId :: TypeId
     , fieldTypeId  :: TypeId
     , fieldNameId  :: StringId
     }
 
+data EncodedField
+  = EncodedField {
+      fieldId :: FieldId
+    , fieldAccessFlags :: AccessFlags
+    }
+
+data Proto
+  = Proto {
+      protoDesc   :: StringId
+    , protoRet    :: TypeId
+    , protoParams :: ParamListId
+    }
+
 data Method
   = Method {
-      methClassId  :: ClassId
+      methClassId  :: TypeId
     , methProtoId  :: ProtoId
     , methNameId   :: StringId
     }
 
+data EncodedMethod
+  = EncodedMethod {
+      methId :: MethodId
+    , methAccessFlags :: AccessFlags
+    , methCodeOff :: Word32
+    }
+
 data Class
   = Class
-    { classId :: ClassId
+    { classId :: TypeId
     , classAccessFlags :: AccessFlags
-    , classSuperId :: ClassId
+    , classSuperId :: TypeId
     , classIntfsOff :: Word32
     , classSourceNameId :: StringId
     , classAnnotsOff :: Word32
-    , classDataOff :: Word32
+    , classStaticFields :: [EncodedField]
+    , classInstanceFields :: [EncodedField]
+    , classDirectMethods :: [EncodedMethod]
+    , classVirtualMethods :: [EncodedMethod]
     , classStaticValuesOff :: Word32
+    }
+
+data TryItem
+  = TryItem
+    { tryStartAddr  :: Word32
+    , tryInsnCount  :: Word16
+    , tryHandlerOff :: Word16
+    }
+
+data CodeItem
+  = CodeItem
+    { codeRegs      :: Word16
+    , codeInSize    :: Word16
+    , codeOutSize   :: Word16
+    , codeDebugOff  :: Word32
+    , codeInsns     :: [Instruction]
+    {-
+    , tryItems  :: [TryItem]
+    , handlers  :: [CatchHandler]
+    -}
     }
 
 showSDI :: StringDataItem -> String
@@ -110,7 +156,7 @@ loadDex bs = do
   linkInfo <- doSection (dexLinkOff h) (dexLinkSize h) parseLinkInfo bs
   return $ DexFile
            { dexHeader = h
-           , dexStrings = Map.fromList strings
+           , dexStrings = strings
            }
 
 doSection :: Word32 -> Word32 -> (BS.ByteString -> Word32 -> Get a)
@@ -200,11 +246,11 @@ liftEither (Right a) = return a
 
 subGet bs off p = liftEither $ runGet p $ BS.drop (fromIntegral off) bs
 
-parseStrings :: BS.ByteString -> Word32 -> Get [(Word32, StringDataItem)]
+parseStrings :: BS.ByteString -> Word32 -> Get (Map Word32 StringDataItem)
 parseStrings bs size = do
   offs <- replicateM (fromIntegral size) getWord32le
   strs <- mapM (\off -> subGet bs off parseStringDataItem) offs
-  return $ zip [0..size] strs
+  return . Map.fromList . zip [0..] $ strs
 
 parseStringDataItem :: Get StringDataItem
 parseStringDataItem = do
@@ -220,15 +266,21 @@ getString = do
 parseTypes :: BS.ByteString -> Word32 -> Get [Word32]
 parseTypes bs size = replicateM (fromIntegral size) getWord32le
 
-parseProtos :: BS.ByteString -> Word32 -> Get [()]
-parseProtos bs size = replicateM (fromIntegral size) parseProto
+parseProtos :: BS.ByteString -> Word32 -> Get (Map ProtoId Proto)
+parseProtos bs size = do
+  protos <- replicateM (fromIntegral size) parseProto
+  return . Map.fromList . zip [0..] $ protos
 
-parseProto :: Get ()
+parseProto :: Get Proto
 parseProto = do
   tyDescId <- getWord32le
   retTyId <- getWord32le
   paramListId <- getWord32le
-  return ()
+  return $ Proto
+           { protoDesc   = tyDescId
+           , protoRet    = fromIntegral retTyId -- TODO: can this lose information?
+           , protoParams = paramListId
+           }
 
 parseFields :: BS.ByteString -> Word32 -> Get (Map FieldId Field)
 parseFields bs size = do
@@ -244,6 +296,23 @@ parseField = do
            { fieldClassId = classId
            , fieldTypeId  = typeId
            , fieldNameId  = nameId
+           }
+
+parseEncodedFields :: Word32 -> Maybe FieldId -> Get [EncodedField]
+parseEncodedFields 0 _ = return []
+parseEncodedFields n mprev = do
+  efield <- parseEncodedField mprev
+  efields <- parseEncodedFields (n - 1) (Just $ fieldId efield)
+  return $ efield : efields
+
+parseEncodedField :: Maybe FieldId -> Get EncodedField
+parseEncodedField mprev = do
+  fieldIdxDiff <- fromIntegral <$> getULEB128 -- TODO: data loss?
+  let fieldIdx = maybe fieldIdxDiff (+ fieldIdxDiff) mprev
+  accessFlags <- getULEB128
+  return $ EncodedField
+           { fieldId = fieldIdx
+           , fieldAccessFlags = accessFlags
            }
 
 parseMethods :: BS.ByteString -> Word32 -> Get (Map MethodId Method)
@@ -262,13 +331,53 @@ parseMethod = do
            , methNameId  = nameId
            }
 
-parseClassDefs :: BS.ByteString -> Word32 -> Get (Map ClassId Class)
+parseEncodedMethods :: Word32 -> Maybe MethodId -> Get [EncodedMethod]
+parseEncodedMethods 0 _ = return []
+parseEncodedMethods n mprev = do
+  emeth <- parseEncodedMethod mprev
+  emeths <- parseEncodedMethods (n - 1) (Just $ methId emeth)
+  return $ emeth : emeths
+
+parseEncodedMethod :: Maybe MethodId -> Get EncodedMethod
+parseEncodedMethod mprev = do
+  methIdxDiff <- fromIntegral <$> getULEB128 -- TODO: data loss?
+  let methIdx = maybe methIdxDiff (+ methIdxDiff) mprev
+  accessFlags <- getULEB128
+  codeOffset <- getULEB128
+  return $ EncodedMethod
+           { methId = methIdx
+           , methAccessFlags = accessFlags
+           , methCodeOff = codeOffset
+           }
+
+parseCodeItem :: Get CodeItem
+parseCodeItem = do
+  regCount <- getWord16le
+  inCount <- getWord16le
+  outCount <- getWord16le
+  tryCount <- getWord16le
+  debugInfoOff <- getWord32le
+  insnCount <- getWord32le
+  insnWords <- replicateM (fromIntegral insnCount) getWord16le
+  _padding <- getWord16le
+  -- TODO: parse tries
+  -- TODO: parse handlers
+  insns <- either fail return $ decodeInstructions insnWords
+  return $ CodeItem
+           { codeRegs = regCount
+           , codeInSize = inCount
+           , codeOutSize = outCount
+           , codeDebugOff = debugInfoOff
+           , codeInsns = insns
+           }
+
+parseClassDefs :: BS.ByteString -> Word32 -> Get (Map TypeId Class)
 parseClassDefs bs size = do
-  classes <- replicateM (fromIntegral size) parseClassDef
+  classes <- replicateM (fromIntegral size) (parseClassDef bs)
   return . Map.fromList . zip [0..] $ classes
 
-parseClassDef :: Get Class
-parseClassDef = do
+parseClassDef :: BS.ByteString -> Get Class
+parseClassDef bs = do
   classId         <- getWord32le
   accessFlags     <- getWord32le
   superclassId    <- getWord32le
@@ -277,6 +386,8 @@ parseClassDef = do
   annotationsOff  <- getWord32le
   dataOff         <- getWord32le
   staticValuesOff <- getWord32le
+  (staticFields, instanceFields,
+   directMethods, virtualMethods) <- subGet bs dataOff parseClassData
   return $ Class
            { classId = fromIntegral classId -- TODO: can this lose information?
            , classAccessFlags = accessFlags
@@ -284,9 +395,24 @@ parseClassDef = do
            , classIntfsOff = interfacesOff
            , classSourceNameId = sourceNameId
            , classAnnotsOff = annotationsOff
-           , classDataOff = dataOff
+           , classStaticFields = staticFields
+           , classInstanceFields = instanceFields
+           , classDirectMethods = directMethods
+           , classVirtualMethods = virtualMethods
            , classStaticValuesOff = staticValuesOff
            }
+
+parseClassData :: Get ([EncodedField], [EncodedField], [EncodedMethod], [EncodedMethod])
+parseClassData = do
+  staticFieldCount <- getULEB128
+  instanceFieldCount <- getULEB128
+  directMethodCount <- getULEB128
+  virtualMethodCount <- getULEB128
+  staticFields <- parseEncodedFields staticFieldCount Nothing
+  instanceFields <- parseEncodedFields instanceFieldCount Nothing
+  directMethods <- parseEncodedMethods directMethodCount Nothing
+  virtualMethods <- parseEncodedMethods virtualMethodCount Nothing
+  return (staticFields, instanceFields, directMethods, virtualMethods)
 
 parseData :: BS.ByteString -> Word32 -> Get BS.ByteString
 parseData bs size = getByteString (fromIntegral size)
@@ -298,6 +424,54 @@ parseLinkInfo bs size = getByteString (fromIntegral size)
 
 s :: String -> BS.ByteString
 s = BS.pack . map toEnum . map fromEnum
+
+{- Access Flags -}
+
+data AccessFlag
+  = ACC_PUBLIC
+  | ACC_PRIVATE
+  | ACC_PROTECTED
+  | ACC_STATIC
+  | ACC_FINAL
+  | ACC_SYNCHRONIZED
+  | ACC_VOLATILE
+  | ACC_BRIDGE
+  | ACC_TRANSIENT
+  | ACC_VARARGS
+  | ACC_NATIVE
+  | ACC_INTERFACE
+  | ACC_ABSTRACT
+  | ACC_STRICT
+  | ACC_SYNTHETIC
+  | ACC_ANNOTATION
+  | ACC_ENUM
+  | ACC_CONSTRUCTOR
+  | ACC_DECLARED_SYNCHRONIZED
+    deriving (Eq, Ord, Show)
+
+andTrue :: Word32 -> Word32 -> Bool
+andTrue w1 w2 = (w1 .&. w2) /= 0
+
+hasAccessFlag :: AccessFlag -> Word32 ->  Bool
+hasAccessFlag ACC_PUBLIC = andTrue 0x00001
+hasAccessFlag ACC_PRIVATE = andTrue 0x00002
+hasAccessFlag ACC_PROTECTED = andTrue 0x00004
+hasAccessFlag ACC_STATIC = andTrue 0x00008
+hasAccessFlag ACC_FINAL = andTrue 0x00010
+hasAccessFlag ACC_SYNCHRONIZED = andTrue 0x00020
+hasAccessFlag ACC_VOLATILE = andTrue 0x00040
+hasAccessFlag ACC_BRIDGE = andTrue 0x00040
+hasAccessFlag ACC_TRANSIENT = andTrue 0x00080
+hasAccessFlag ACC_VARARGS = andTrue 0x00080
+hasAccessFlag ACC_NATIVE = andTrue 0x00100
+hasAccessFlag ACC_INTERFACE = andTrue 0x00200
+hasAccessFlag ACC_ABSTRACT = andTrue 0x00400
+hasAccessFlag ACC_STRICT = andTrue 0x00800
+hasAccessFlag ACC_SYNTHETIC = andTrue 0x01000
+hasAccessFlag ACC_ANNOTATION = andTrue 0x02000
+hasAccessFlag ACC_ENUM = andTrue 0x4000
+hasAccessFlag ACC_CONSTRUCTOR = andTrue 0x10000
+hasAccessFlag ACC_DECLARED_SYNCHRONIZED = andTrue 0x20000
 
 {- LEB128 decoding -}
 
