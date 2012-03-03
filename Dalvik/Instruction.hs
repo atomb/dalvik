@@ -1,7 +1,7 @@
 module Dalvik.Instruction where
 
 import Control.Applicative
-import Control.Monad.Instances
+import Control.Monad
 import Data.Array
 import Data.Bits
 import Data.Int
@@ -142,11 +142,10 @@ data Instruction
   | ArrayLength Reg4 Reg4
   | NewInstance Reg8 TypeId
   | NewArray Reg4 Reg4 TypeId
-  {-
-  | FilledNewArray
-  | FilledNewArrayRange
-  | FillArrayData
-  -}
+  -- TODO: is this a good encoding for array instructions?
+  | FilledNewArray Word4 [Reg4] TypeId
+  | FilledNewArrayRange Word8 [Reg16] TypeId
+  | FillArrayData Word16 Word32 [Word8]
   | Throw Reg8
   | Goto Int32
   | PackedSwitch Reg8 Word32
@@ -174,6 +173,10 @@ splitWord8 w = (fromIntegral $ w `shiftR` 4, fromIntegral $ w .&. 0x0F)
 splitWord16 :: Word16 -> (Word8, Word8)
 splitWord16 w = (fromIntegral $ w `shiftR` 8, fromIntegral $ w .&. 0x00FF)
 
+splitWord16' :: Word16 -> (Word4, Word4, Word4, Word4)
+splitWord16' w = (fst4 b1, snd4 b1, fst4 b2, snd4 b2)
+  where (b1, b2) = splitWord16 w
+
 type DecodeError = String -- TODO: replace with structured type
 type IParseResult = Either DecodeError Instruction
 
@@ -188,6 +191,39 @@ data InsnParser
   | IParse2 (Word16 -> IParseResult)
   | IParse3 (Word16 -> Word16 -> IParseResult)
   | IParse5 (Word16 -> Word16 -> Word16 -> Word16 -> IParseResult)
+
+{- As named in the Dalvik VM Instruction Formats document. -}
+-- TODO: proofread these
+data IFormatParser
+  = IF10x IParseResult
+  | IF12x (Word4 -> Word4 -> IParseResult)
+  | IF11n (Word4 -> Word4 -> IParseResult)
+  | IF11x (Word8 -> IParseResult)
+  | IF10t (Word8 -> IParseResult)
+  | IF20t (Word16 -> IParseResult)
+  | IF22x (Word8 -> Word16 -> IParseResult)
+  | IF21t (Word8 -> Word16 -> IParseResult)
+  | IF21s (Word8 -> Word16 -> IParseResult)
+  | IF21h (Word8 -> Word16 -> IParseResult)
+  | IF21c (Word8 -> Word16 -> IParseResult)
+  | IF23x (Word8 -> Word8 -> Word8 -> IParseResult)
+  | IF22b (Word8 -> Word8 -> Word8 -> IParseResult)
+  | IF22t (Word4 -> Word4 -> Word16 -> IParseResult)
+  | IF22s (Word4 -> Word4 -> Word16 -> IParseResult)
+  | IF22c (Word4 -> Word4 -> Word16 -> IParseResult)
+  | IF22cs (Word4 -> Word4 -> Word16 -> IParseResult)
+  | IF30t (Word32 -> IParseResult)
+  | IF32x (Word16 -> Word16 -> IParseResult)
+  | IF31i (Word8 -> Word32 -> IParseResult)
+  | IF31t (Word8 -> Word32 -> IParseResult)
+  | IF31c (Word8 -> Word32 -> IParseResult)
+  | IF35c ([Word4] -> Word16 -> IParseResult)
+  | IF35ms ([Word4] -> Word16 -> IParseResult)
+  | IF35fs ([Word4] -> Word8 -> Word8 -> IParseResult)
+  | IF3rc (Word16 -> Word16 -> Word16 -> IParseResult)
+  | IF3rms (Word16 -> Word16 -> Word16 -> IParseResult)
+  | IF3rfs (Word16 -> Word16 -> Word8 -> Word8 -> IParseResult)
+  | IF511 (Word8 -> Word64 -> IParseResult)
 
 -- TODO: check that ignored rps are zero?
 iparseTable :: Array Word8 (Word8 -> InsnParser)
@@ -243,9 +279,9 @@ iparseTable = array (0x00, 0xFF) $
   , (0x21, \rp -> i1 $           i $ ArrayLength (fst4 rp) (snd4 rp))
   , (0x22, \rp -> i2 $ \w1    -> i $ NewInstance rp w1)
   , (0x23, \rp -> i2 $ \w1    -> i $ NewArray (fst4 rp) (snd4 rp) w1)
-  , (0x24, undefined)
-  , (0x25, undefined)
-  , (0x26, undefined)
+  , (0x24, \rp -> i3 $ \w1 w2 -> i $ undefined) -- FilledNewArray filledNewArray rp w1 w2)
+  , (0x25, \rp -> i3 $ \w1 w2 -> i $ undefined) -- FilledNewArrayRange )
+  , (0x26, \rp -> i3 $ \w1 w2 -> i $ undefined) -- FillArrayData )
   -- Exceptions
   , (0x27, \rp -> i1 $           i $ Throw rp)
   -- Unconditional branches
@@ -492,16 +528,7 @@ iparseTable = array (0x00, 0xFF) $
           r4 = R4 . fromIntegral
           r8 = R8 . fromIntegral
           r16 = R16 . fromIntegral
-          fst4 = fst . splitWord8
-          snd4 = snd . splitWord8
-          fst8 = fst . splitWord16
-          snd8 = snd . splitWord16
-          combine16 w1 w2 = (fromIntegral w1 `shiftL` 16) .|. fromIntegral w2
-          combine16' w1 w2 w3 w4 =
-            (fromIntegral w1 `shiftL` 32) .|.
-            (fromIntegral w2 `shiftL` 24) .|.
-            (fromIntegral w3 `shiftL` 16) .|.
-            fromIntegral w4
+
           cmp op rp = i2 $ \w1 -> i $ Cmp op rp (fst8 w1) (snd8 w1)
           ifop op rp =
             i2 $ \w1 -> i $ If op (fst4 rp) (snd4 rp) (fromIntegral w1)
@@ -528,6 +555,7 @@ iparseTable = array (0x00, 0xFF) $
                 4 -> inv [d, e, f, g]
                 5 -> inv [d, e, f, g, a]
                 _ -> fail $ "Invalid number of arguments: " ++ show b
+          -- TODO: implement this
           invokeRange ty rp = undefined
           binop c w op rp = i2 $ \w1 -> i $ c op w rp (fst8 w1) (snd8 w1)
           binopa c w op rp = i1 $ i $ c op w (fst4 rp) (snd4 rp)
@@ -555,8 +583,22 @@ iparseTable = array (0x00, 0xFF) $
           reto = Return MObject
           invalid op = (op, noreg . fail . invalidOpcode $ op)
 
+fst4 = fst . splitWord8
+snd4 = snd . splitWord8
+fst8 = fst . splitWord16
+snd8 = snd . splitWord16
+combine16 w1 w2 = (fromIntegral w1 `shiftL` 16) .|. fromIntegral w2
+combine16' w1 w2 w3 w4 =
+  (fromIntegral w1 `shiftL` 32) .|.
+  (fromIntegral w2 `shiftL` 24) .|.
+  (fromIntegral w3 `shiftL` 16) .|.
+  fromIntegral w4
+
 iparser :: Word8 -> Word8 -> InsnParser
 iparser = (!) iparseTable
+
+iparserF :: Word8 -> Word8 -> IFormatParser
+iparserF = undefined
 
 decodeInstructions :: [Word16] -> Either DecodeError [Instruction]
 decodeInstructions [] = return []
@@ -568,6 +610,65 @@ decodeInstructions (w : ws) = case (iparser op rp, ws) of
   _ -> fail $ prematureEnd op
   where (rp, op) = splitWord16 w
         go = decodeInstructions
+
+decodeInstructionsF :: [Word16] -> Either DecodeError [Instruction]
+decodeInstructionsF [] = return []
+decodeInstructionsF (w : ws) = liftM2 (:) insn (decodeInstructionsF ws'')
+  where
+    (rp, op) = splitWord16 w
+    (insn, ws'') =
+      case (iparserF op rp, ws) of
+        (IF10x  f, _) -> (f, ws)
+        (IF12x  f, _) -> (f (snd4 rp) (fst4 rp), ws)
+        (IF11n  f, _) -> (f (snd4 rp) (fst4 rp), ws)
+        (IF11x  f, _) -> (f rp, ws)
+        (IF10t  f, _) -> (f rp, ws)
+        (IF20t  f, w1 : ws') -> (f w1, ws')
+        (IF22x  f, w1 : ws') -> (f rp w1, ws')
+        (IF21t  f, w1 : ws') -> (f rp w1, ws')
+        (IF21s  f, w1 : ws') -> (f rp w1, ws')
+        (IF21h  f, w1 : ws') -> (f rp w1, ws')
+        (IF21c  f, w1 : ws') -> (f rp w1, ws')
+        (IF23x  f, w1 : ws') -> (f rp (snd8 w1) (fst8 w1), ws')
+        (IF22b  f, w1 : ws') -> (f rp (snd8 w1) (fst8 w1), ws')
+        (IF22t  f, w1 : ws') -> (f (snd4 rp) (fst4 rp) w1, ws')
+        (IF22s  f, w1 : ws') -> (f (snd4 rp) (fst4 rp) w1, ws')
+        (IF22c  f, w1 : ws') -> (f (snd4 rp) (fst4 rp) w1, ws')
+        (IF22cs f, w1 : ws') -> (f (snd4 rp) (fst4 rp) w1, ws')
+        (IF30t  f, w1 : w2 : ws') -> (f (combine16 w2 w1), ws')
+        (IF32x  f, w1 : w2 : ws') -> (f w1 w2, ws')
+        (IF31i  f, w1 : w2 : ws') -> (f rp (combine16 w2 w1), ws')
+        (IF31t  f, w1 : w2 : ws') -> (f rp (combine16 w2 w1), ws')
+        (IF31c  f, w1 : w2 : ws') -> (f rp (combine16 w2 w1), ws')
+        (IF35c  fn, w1 : w2 : ws') ->
+          if b <= 5
+            then (fn (take (fromIntegral b) [d, e, f, g, a]) w1, ws')
+            else (fail "invalid B value for IF35c encoding", ws')
+          where (b, a) = splitWord8 rp
+                (g, f, e, d) = splitWord16' w2
+        (IF35ms fn, w1 : w2 : ws') ->
+          if b <= 5 && b > 0
+            then (fn (take (fromIntegral b) [d, e, f, g, a]) w1, ws')
+            else (fail "invalid B value for IF35ms encoding", ws')
+          where (b, a) = splitWord8 rp
+                (g, f, e, d) = splitWord16' w2
+        (IF35fs fn, w1 : w2 : ws') ->
+          if b <= 5 && b > 0
+            then (fn (take (fromIntegral b) [e, f, g, h, a]) d c, ws')
+            else (fail "invalid B value for IF35ms encoding", ws')
+          where (b, a) = splitWord8 rp
+                (d, c) = splitWord16 w1
+                (h, g, f, e) = splitWord16' w2
+        (IF3rc  fn, w1 : w2 : ws') ->
+          (fn w2 ((w2 + fromIntegral rp) - 1) w1,  ws')
+        (IF3rms fn, w1 : w2 : ws') ->
+          (fn w2 ((w2 + fromIntegral rp) - 1) w1,  ws')
+        (IF3rfs fn, w1 : w2 : ws') -> (fn w2 n b c, ws')
+          where (c, b) = splitWord16 w1
+                n = (w2 + fromIntegral rp) - 1
+        (IF511  fn, w1 : w2 : w3 : w4 : ws') ->
+          (fn rp (combine16' w4 w3 w2 w1), ws')
+        _ -> (fail $ prematureEnd op, ws)
 
 {-
 encodeInstructions :: [Instruction] -> [Word16]

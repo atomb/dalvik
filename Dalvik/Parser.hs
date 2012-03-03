@@ -99,7 +99,7 @@ data Class
     { classId :: TypeId
     , classAccessFlags :: AccessFlags
     , classSuperId :: TypeId
-    , classIntfsOff :: Word32
+    , classInterfaces :: [TypeId]
     , classSourceNameId :: StringId
     , classAnnotsOff :: Word32
     , classStaticFields :: [EncodedField]
@@ -259,6 +259,10 @@ liftEither (Right a) = return a
 subGet :: Integral c => BS.ByteString -> c -> Get a -> Get a
 subGet bs off p = liftEither $ runGet p $ BS.drop (fromIntegral off) bs
 
+subGet' :: Integral c => BS.ByteString -> c -> a -> Get a -> Get a
+subGet' _ 0 def _ = return def
+subGet' bs off _ p = subGet bs off p
+
 parseStrings :: BS.ByteString -> Word32 -> Get (Map Word32 StringDataItem)
 parseStrings bs size = do
   offs <- replicateM (fromIntegral size) getWord32le
@@ -278,6 +282,11 @@ getString = do
 
 parseTypes :: BS.ByteString -> Word32 -> Get [Word32]
 parseTypes bs size = replicateM (fromIntegral size) getWord32le
+
+parseTypeList :: Get [TypeId]
+parseTypeList = do
+  size <- getWord32le
+  replicateM (fromIntegral size) getWord16le
 
 parseProtos :: BS.ByteString -> Word32 -> Get (Map ProtoId Proto)
 parseProtos bs size = do
@@ -342,9 +351,7 @@ parseEncodedMethod bs mprev = do
   let methIdx = maybe methIdxDiff (+ methIdxDiff) mprev
   accessFlags <- getULEB128
   codeOffset <- getULEB128
-  codeItem <- case codeOffset of
-                0 -> return Nothing
-                _ -> Just <$> subGet bs codeOffset parseCodeItem
+  codeItem <- subGet' bs codeOffset Nothing (Just <$> parseCodeItem)
   return $ EncodedMethod
            { methId = methIdx
            , methAccessFlags = accessFlags
@@ -383,19 +390,19 @@ parseClassDef bs = do
   accessFlags     <- getWord32le
   superclassId    <- getWord32le
   interfacesOff   <- getWord32le
+  ifaces          <- subGet' bs interfacesOff [] parseTypeList
   sourceNameId    <- getWord32le
   annotationsOff  <- getWord32le
   dataOff         <- getWord32le
   staticValuesOff <- getWord32le
   (staticFields, instanceFields,
-   directMethods, virtualMethods) <- case dataOff of
-                                       0 -> return ([], [], [], [])
-                                       _ -> subGet bs dataOff (parseClassData bs)
+   directMethods, virtualMethods) <-
+      subGet' bs dataOff ([], [], [], []) (parseClassData bs)
   return $ Class
            { classId = fromIntegral classIdx -- TODO: can this lose information?
            , classAccessFlags = accessFlags
            , classSuperId = fromIntegral superclassId -- TODO: ditto
-           , classIntfsOff = interfacesOff
+           , classInterfaces = ifaces
            , classSourceNameId = sourceNameId
            , classAnnotsOff = annotationsOff
            , classStaticFields = staticFields
