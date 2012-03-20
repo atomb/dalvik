@@ -232,15 +232,15 @@ iparseTable = array (0x00, 0xFF) $
   , (0x07, IF12x $ \r1 r2 -> Move MObject (R4 r1) (R4 r2))
   , (0x08, IF22x $ \r1 r2 -> Move MObject (R8 r1) (R16 r2))
   , (0x09, IF32x $ \r1 r2 -> Move MObject (R16 r1) (R16 r2))
-  , (0x0a, IF11x $ \r -> Move1 MResult (R8 r))
-  , (0x0b, IF11x $ \r -> Move1 MResultWide (R8 r))
-  , (0x0c, IF11x $ \r -> Move1 MResultObject (R8 r))
-  , (0x0d, IF11x $ \r -> Move1 MException (R8 r))
+  , (0x0a, move1 MResult)
+  , (0x0b, move1 MResultWide)
+  , (0x0c, move1 MResultObject)
+  , (0x0d, move1 MException)
   -- Return
   , (0x0e, IF10x ReturnVoid)
-  , (0x0f, IF11x $ Return MNormal . R8)
-  , (0x10, IF11x $ Return MWide . R8)
-  , (0x11, IF11x $ Return MObject . R8)
+  , (0x0f, ret MNormal)
+  , (0x10, ret MWide)
+  , (0x11, ret MObject)
   -- Constants
   , (0x12, IF11n $ \r c -> LoadConst (R4 r) (Const4 $ fromIntegral c))
   , (0x13, IF21s $ \r c -> LoadConst (R8 r) (Const16 $ fromIntegral c))
@@ -526,6 +526,8 @@ iparseTable = array (0x00, 0xFF) $
           statop op = IF21c $ StaticFieldOp op
           invoke ty = IF35c $ \f args -> Invoke ty f (map fromIntegral args)
           invokeRange ty = IF3rc $ \f rs -> Invoke ty f rs
+          ret ty = IF11x $ Return ty . R8
+          move1 ty = IF11x $ Move1 ty . R8
 
 fst4, snd4 :: Word8 -> Word4
 fst4 = fst . splitWord8
@@ -548,9 +550,9 @@ combine16' w1 w2 w3 w4 =
 iparser :: Word8 -> IFormatParser
 iparser = (!) iparseTable
 
-decodeInstructionsF :: [Word16] -> Either DecodeError [Instruction]
-decodeInstructionsF [] = return []
-decodeInstructionsF (w : ws) = liftM2 (:) insn (decodeInstructionsF ws'')
+decodeInstructions :: [Word16] -> Either DecodeError [Instruction]
+decodeInstructions [] = return []
+decodeInstructions (w : ws) = liftM2 (:) insn (decodeInstructions ws'')
   where
     (rp, op) = splitWord16 w
     (insn, ws'') =
