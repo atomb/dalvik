@@ -10,8 +10,6 @@ import Data.Map (Map)
 import Data.Serialize.Get
 import Data.Word
 
-import Debug.Trace
-
 import Dalvik.Instruction
 
 {-

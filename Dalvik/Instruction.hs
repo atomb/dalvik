@@ -255,7 +255,7 @@ iparseTable = array (0x00, 0xFF) $
   , (0x1c, IF21c $ \r i -> LoadConst (R8 r) (ConstClass i))
   -- Monitors
   , (0x1d, IF11x MonitorEnter)
-  , (0x1d, IF11x MonitorExit)
+  , (0x1e, IF11x MonitorExit)
   -- Casting
   , (0x1f, IF21c CheckCast)
   , (0x20, IF22c InstanceOf)
