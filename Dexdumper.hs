@@ -2,20 +2,24 @@ module Main where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as UTF8
+import qualified Data.Map as Map
 import System.Environment
 import Text.Printf
 
+import Dalvik.Instruction
 import Dalvik.Parser
 
 processFile :: FilePath -> IO ()
 processFile f = do
-  putStrLn $ "Processing '" ++ f ++ "'"
+  putStrLn $ "Processing '" ++ f ++ "'..."
   edex <- loadDexIO f
   case edex of
     Left err -> putStrLn err
     Right dex -> do
       mapM_ putStrLn . hdrLines f . dexHeader $ dex
+      mapM_ putStrLn . concat . map classLines . Map.toList . dexClasses $ dex
 
+hdrLines :: FilePath -> DexHeader -> [String]
 hdrLines f hdr =
   [ printf "Opened '%s', DEX version %s"
     f (show (dexVersion hdr))
@@ -41,14 +45,32 @@ hdrLines f hdr =
   , fldn "data_size" $ dexDataSize hdr
   , fldx "data_off" $ dexDataOff hdr
   ]
-  where fld :: String -> String -> String
-        fld = printf "%-20s: %s"
-        fldx n v = fld n (printf "%d (0x%06x)" v v)
-        fldn n v = fld n (show v)
-        h8 = printf "%08x"
+  where h8 = printf "%08x"
         sig s = concat [ take 4 s' , "..." , drop 36 s' ]
           where s' = concatMap (printf "%02x") s
 
+fld :: String -> String -> String
+fld = printf "%-20s: %s"
+fldx n v = fld n (printf "%d (0x%06x)" v v)
+fldx4 n v = fld n (printf "%d (0x%04x)" v v)
+fldn n v = fld n (show v)
+
+classLines :: (TypeId, Class) -> [String]
+classLines (i, cls) =
+  [ ""
+  , printf "Class #%d header:" i
+  , fldn "class_idx" $ classId cls
+  , fldx4 "access_flags" $ classAccessFlags cls
+  , fldn "superclass_idx" $ classSuperId cls
+  , fldx "interfaces_off" $ classInterfacesOff cls
+  , fldn "source_file_idx" $ classSourceNameId cls
+  , fldx "annotations_off" $ classAnnotsOff cls
+  , fldx "class_data_off" $ classDataOff cls
+  , fldn "static_fields_size" $ length (classStaticFields cls)
+  , fldn "instance_fields_size" $ length (classInstanceFields cls)
+  , fldn "direct_methods_size" $ length (classDirectMethods cls)
+  , fldn "virtual_methods_size" $ length (classVirtualMethods cls)
+  ]
 
 main :: IO ()
 main = mapM_ processFile =<< getArgs
