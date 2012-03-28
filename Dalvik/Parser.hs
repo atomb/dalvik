@@ -97,6 +97,7 @@ data Class
     { classId :: TypeId
     , classAccessFlags :: AccessFlags
     , classSuperId :: TypeId
+    , classInterfacesOff :: Word32
     , classInterfaces :: [TypeId]
     , classSourceNameId :: StringId
     , classAnnotsOff :: Word32
@@ -104,6 +105,7 @@ data Class
     , classInstanceFields :: [EncodedField]
     , classDirectMethods :: [EncodedMethod]
     , classVirtualMethods :: [EncodedMethod]
+    , classDataOff :: Word32
     , classStaticValuesOff :: Word32
     } deriving (Show)
 
@@ -400,6 +402,7 @@ parseClassDef bs = do
            { classId = fromIntegral classIdx -- TODO: can this lose information?
            , classAccessFlags = accessFlags
            , classSuperId = fromIntegral superclassId -- TODO: ditto
+           , classInterfacesOff = interfacesOff
            , classInterfaces = ifaces
            , classSourceNameId = sourceNameId
            , classAnnotsOff = annotationsOff
@@ -407,6 +410,7 @@ parseClassDef bs = do
            , classInstanceFields = instanceFields
            , classDirectMethods = directMethods
            , classVirtualMethods = virtualMethods
+           , classDataOff = dataOff
            , classStaticValuesOff = staticValuesOff
            }
 
