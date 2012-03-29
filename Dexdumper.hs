@@ -6,6 +6,7 @@ import qualified Data.Map as Map
 import System.Environment
 import Text.Printf
 
+import Dalvik.AccessFlags
 import Dalvik.Instruction
 import Dalvik.Parser
 
@@ -17,7 +18,8 @@ processFile f = do
     Left err -> putStrLn err
     Right dex -> do
       mapM_ putStrLn . hdrLines f . dexHeader $ dex
-      mapM_ putStrLn . concat . map classLines . Map.toList . dexClasses $ dex
+      mapM_ putStrLn . clsLines . dexClasses $ dex
+        where clsLines = concat . map (classLines dex) . Map.toList
 
 hdrLines :: FilePath -> DexHeader -> [String]
 hdrLines f hdr =
@@ -54,9 +56,12 @@ fld = printf "%-20s: %s"
 fldx n v = fld n (printf "%d (0x%06x)" v v)
 fldx4 n v = fld n (printf "%d (0x%04x)" v v)
 fldn n v = fld n (show v)
+fldns n v s = fld n (printf "%04x (%s)" v s)
+getStr i dex = Map.findWithDefault (SDI 0 []) i (dexStrings dex)
+getTypeName i dex = Map.findWithDefault 0 i (dexTypeNames dex)
 
-classLines :: (TypeId, Class) -> [String]
-classLines (i, cls) =
+classLines :: DexFile -> (TypeId, Class) -> [String]
+classLines dex (i, cls) =
   [ ""
   , printf "Class #%d header:" i
   , fldn "class_idx" $ classId cls
@@ -70,6 +75,12 @@ classLines (i, cls) =
   , fldn "instance_fields_size" $ length (classInstanceFields cls)
   , fldn "direct_methods_size" $ length (classDirectMethods cls)
   , fldn "virtual_methods_size" $ length (classVirtualMethods cls)
+  , ""
+  , printf "Class #%-13d-" i
+  , fld "  Class descriptor" $ showSDI $
+    getStr (getTypeName (classId cls) dex) dex
+  , fldns "  Access flags"
+    (classAccessFlags cls) (flagsString AClass (classAccessFlags cls))
   ]
 
 main :: IO ()

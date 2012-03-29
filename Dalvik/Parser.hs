@@ -10,7 +10,9 @@ import Data.Map (Map)
 import Data.Serialize.Get
 import Data.Word
 
+import Dalvik.AccessFlags
 import Dalvik.Instruction
+import Dalvik.LEB128
 
 {-
 Based on documentation from:
@@ -46,7 +48,6 @@ data DexHeader =
 
 type ProtoId = Word16
 type ParamListId = Word32
-type AccessFlags = Word32
 
 data MapItem
   = MapItem {
@@ -136,7 +137,7 @@ data DexFile =
   DexFile
   { dexHeader       :: DexHeader
   , dexStrings      :: Map StringId StringDataItem
-  , dexTypes        :: [Word32]
+  , dexTypeNames    :: Map TypeId StringId
   , dexProtos       :: Map ProtoId Proto
   , dexFields       :: Map FieldId Field
   , dexMethods      :: Map MethodId Method
@@ -164,7 +165,7 @@ loadDex bs = do
   return $ DexFile
            { dexHeader = h
            , dexStrings = strings
-           , dexTypes = types
+           , dexTypeNames = types
            , dexProtos = protos
            , dexFields = fields
            , dexMethods = methods
@@ -280,8 +281,9 @@ getString = do
   b <- getWord8
   if b == 0 then return [] else (b:) <$> getString
 
-parseTypes :: BS.ByteString -> Word32 -> Get [Word32]
-parseTypes bs size = replicateM (fromIntegral size) getWord32le
+parseTypes :: BS.ByteString -> Word32 -> Get (Map TypeId StringId)
+parseTypes bs size =
+  (Map.fromList . zip [0..]) <$> replicateM (fromIntegral size) getWord32le
 
 parseTypeList :: Get [TypeId]
 parseTypeList = do
@@ -439,76 +441,4 @@ parseLinkInfo bs size = getByteString (fromIntegral size)
 s :: String -> BS.ByteString
 s = BS.pack . map toEnum . map fromEnum
 
-{- Access Flags -}
 
-data AccessFlag
-  = ACC_PUBLIC
-  | ACC_PRIVATE
-  | ACC_PROTECTED
-  | ACC_STATIC
-  | ACC_FINAL
-  | ACC_SYNCHRONIZED
-  | ACC_VOLATILE
-  | ACC_BRIDGE
-  | ACC_TRANSIENT
-  | ACC_VARARGS
-  | ACC_NATIVE
-  | ACC_INTERFACE
-  | ACC_ABSTRACT
-  | ACC_STRICT
-  | ACC_SYNTHETIC
-  | ACC_ANNOTATION
-  | ACC_ENUM
-  | ACC_CONSTRUCTOR
-  | ACC_DECLARED_SYNCHRONIZED
-    deriving (Enum, Eq, Ord, Show)
-
-andTrue :: Word32 -> Word32 -> Bool
-andTrue w1 w2 = (w1 .&. w2) /= 0
-
-hasAccessFlag :: AccessFlag -> Word32 ->  Bool
-hasAccessFlag ACC_PUBLIC = andTrue 0x00001
-hasAccessFlag ACC_PRIVATE = andTrue 0x00002
-hasAccessFlag ACC_PROTECTED = andTrue 0x00004
-hasAccessFlag ACC_STATIC = andTrue 0x00008
-hasAccessFlag ACC_FINAL = andTrue 0x00010
-hasAccessFlag ACC_SYNCHRONIZED = andTrue 0x00020
-hasAccessFlag ACC_VOLATILE = andTrue 0x00040
-hasAccessFlag ACC_BRIDGE = andTrue 0x00040
-hasAccessFlag ACC_TRANSIENT = andTrue 0x00080
-hasAccessFlag ACC_VARARGS = andTrue 0x00080
-hasAccessFlag ACC_NATIVE = andTrue 0x00100
-hasAccessFlag ACC_INTERFACE = andTrue 0x00200
-hasAccessFlag ACC_ABSTRACT = andTrue 0x00400
-hasAccessFlag ACC_STRICT = andTrue 0x00800
-hasAccessFlag ACC_SYNTHETIC = andTrue 0x01000
-hasAccessFlag ACC_ANNOTATION = andTrue 0x02000
-hasAccessFlag ACC_ENUM = andTrue 0x4000
-hasAccessFlag ACC_CONSTRUCTOR = andTrue 0x10000
-hasAccessFlag ACC_DECLARED_SYNCHRONIZED = andTrue 0x20000
-
-{- LEB128 decoding -}
-
-getSLEB128 :: Get Int32
-getSLEB128 = do
-  (a, n) <- smashLEB <$> getLEB
-  let a' | a .&. (1 `shiftL` n) == 0 = a
-         | otherwise = a .|. (0xFFFFFFFF `shiftL` n)
-  return $ fromIntegral a'
-
-getULEB128 :: Get Word32
-getULEB128 = fst <$> smashLEB <$> getLEB
-
-getULEB128p1 :: Get Int32
-getULEB128p1 = (pred . fromIntegral) <$> getULEB128
-
-smashLEB :: [Word8] -> (Word32, Int)
-smashLEB = go 0 0
-  where go a n [] = (a, n - 1)
-        go a n (x : xs) = go ((x' `shiftL` n) .|. a) (n + 7) xs
-          where x' = fromIntegral x
-
-getLEB :: Get [Word8]
-getLEB = do
-  b <- getWord8
-  ((b .&. 0x7F) :) <$> if (b .&. 0x80) /= 0 then getLEB else return []
