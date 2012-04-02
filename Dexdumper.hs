@@ -163,7 +163,7 @@ methodLines :: DexFile -> (Word32, EncodedMethod) -> [String]
 methodLines dex (n, m) =
   [ printf "    #%d              : (in %s)" n clsName
   , fld "      name" . pSDI' . getStr dex . methNameId $ method
-  , fld "      type" . pSDI' . getStr dex . protoDesc $ proto
+  , fld "      type" $ protoDesc dex proto
   , fldxs "      access"
     (methAccessFlags m)
     (flagsString AMethod (methAccessFlags m))
@@ -172,6 +172,11 @@ methodLines dex (n, m) =
           proto = getProto dex (methProtoId method)
           clsName = pSDI . getTypeName dex . methClassId $ method
           i = methId m
+
+protoDesc :: DexFile -> Proto -> String
+protoDesc dex proto = printf "'(%s)%s'" argStr retStr
+  where argStr = concatMap (pSDI . getTypeName dex) (protoParams proto)
+        retStr = pSDI $ getTypeName dex (protoRet proto)
 
 codeLines :: DexFile -> CodeItem -> [String]
 codeLines dex code =

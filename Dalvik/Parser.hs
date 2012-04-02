@@ -74,9 +74,9 @@ data EncodedField
 
 data Proto
   = Proto {
-      protoDesc   :: StringId
-    , protoRet    :: TypeId
-    , protoParams :: ParamListId
+      protoShortDesc :: StringId
+    , protoRet       :: TypeId
+    , protoParams    :: [TypeId]
     } deriving (Show)
 
 data Method
@@ -292,18 +292,20 @@ parseTypeList = do
 
 parseProtos :: BS.ByteString -> Word32 -> Get (Map ProtoId Proto)
 parseProtos bs size = do
-  protos <- replicateM (fromIntegral size) parseProto
+  protos <- replicateM (fromIntegral size) (parseProto bs)
   return . Map.fromList . zip [0..] $ protos
 
-parseProto :: Get Proto
-parseProto = do
+parseProto :: BS.ByteString -> Get Proto
+parseProto bs = do
   tyDescId <- getWord32le
   retTyId <- getWord32le
-  paramListId <- getWord32le
+  paramListOff <- getWord32le
+  params <- subGet' bs paramListOff [] parseTypeList
   return $ Proto
-           { protoDesc   = tyDescId
-           , protoRet    = fromIntegral retTyId -- TODO: can this lose information?
-           , protoParams = paramListId
+           { protoShortDesc = tyDescId
+           -- TODO: can the following lose information?
+           , protoRet       = fromIntegral retTyId
+           , protoParams    = params
            }
 
 parseFields :: BS.ByteString -> Word32 -> Get (Map FieldId Field)
