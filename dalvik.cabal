@@ -35,6 +35,7 @@ Library
                      Dalvik.Parser
     Other-Modules:
     GHC-Options: -Wall
+    GHC-Prof-Options: -auto-all -caf-all
 
 Executable Dexdumper
     main-is: Dexdumper.hs
