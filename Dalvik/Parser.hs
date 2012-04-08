@@ -2,9 +2,7 @@ module Dalvik.Parser where
 
 import Control.Applicative
 import Control.Monad
-import Data.Bits
 import qualified Data.ByteString as BS
-import Data.Int
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Serialize.Get
@@ -119,9 +117,9 @@ data TryItem
 
 data CatchHandler
   = CatchHandler
-    { handlerOff   :: Word32
-    , handlers     :: [(TypeId, Word32)]
-    , catchAllAddr :: Maybe Word32
+    { chHandlerOff :: Word32
+    , chHandlers   :: [(TypeId, Word32)]
+    , chAllAddr    :: Maybe Word32
     } deriving (Show)
 
 data CodeItem
@@ -132,10 +130,11 @@ data CodeItem
     , codeDebugOff  :: Word32
     , codeInsns     :: [Word16] --[Instruction]
     , codeTryItems  :: [TryItem]
+    , codeHandlers  :: [CatchHandler]
     } deriving (Show)
 
 showSDI :: StringDataItem -> String
-showSDI (SDI _ str) = show (BS.pack str)
+showSDI (SDI _ s) = show (BS.pack s)
 
 data DexFile =
   DexFile
@@ -193,9 +192,9 @@ doSection off size p bs =
 parseDexHeader :: Get DexHeader
 parseDexHeader = do
   magic <- getBytes 4
-  unless (magic == s "dex\n") $ fail "Invalid magic string"
+  unless (magic == str "dex\n") $ fail "Invalid magic string"
   version <- getBytes 4
-  unless (version == s "035\0") $ fail "Unsupported version"
+  unless (version == str "035\0") $ fail "Unsupported version"
   checksum <- getWord32le
   sha1 <- BS.unpack <$> getBytes 20
   fileLen <- getWord32le
@@ -380,12 +379,12 @@ parseCodeItem = do
   insns <- replicateM (fromIntegral insnCount) getWord16le
   _ <- if tryCount > 0 && odd insnCount then getWord16le else return 0
   tryItems <- replicateM (fromIntegral tryCount) parseTryItem
-  rem <- remaining
+  r <- remaining
   handlers <-
     if tryCount == 0 then return []
     else
       do handlerSize <- getULEB128
-         replicateM (fromIntegral handlerSize) (parseEncodedCatchHandler rem)
+         replicateM (fromIntegral handlerSize) (parseEncodedCatchHandler r)
   -- insns <- either fail return $ decodeInstructions insnWords
   return $ CodeItem
            { codeRegs = regCount
@@ -394,22 +393,22 @@ parseCodeItem = do
            , codeDebugOff = debugInfoOff
            , codeInsns = insns
            , codeTryItems = tryItems
+           , codeHandlers = handlers
            }
-  where odd = (== 1) . (`mod` 2)
 
 parseTryItem :: Get TryItem
 parseTryItem = TryItem <$> getWord32le <*> getWord16le <*> getWord16le
 
 parseEncodedCatchHandler :: Int -> Get CatchHandler
 parseEncodedCatchHandler startRem = do
-  rem <- remaining
+  r <- remaining
   handlerSize <- getSLEB128
   handlers <- replicateM (abs (fromIntegral handlerSize))
               parseEncodedTypeAddrPair
   catchAllAddr <- if handlerSize <= 0
                   then Just <$> getULEB128
                   else return Nothing
-  let off = fromIntegral $ startRem - rem
+  let off = fromIntegral $ startRem - r
   return $ CatchHandler off handlers catchAllAddr
 
 parseEncodedTypeAddrPair :: Get (TypeId, Word32)
@@ -473,5 +472,5 @@ parseLinkInfo bs size = getByteString (fromIntegral size)
 
 {- Utility functions -}
 
-s :: String -> BS.ByteString
-s = BS.pack . map toEnum . map fromEnum
+str :: String -> BS.ByteString
+str = BS.pack . map toEnum . map fromEnum
