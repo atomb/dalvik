@@ -186,7 +186,16 @@ codeLines dex code =
   , fldn "      outs" $ codeOutSize code
   , fld "      insns size" $
     printf "%d 16-bit code units" (length (codeInsns code))
-  ]
+  , fld "      catches" $
+    if null tries then "(none)" else show (length tries)
+  ] ++ concatMap (tryLines code) tries
+    where tries = codeTryItems code
+
+tryLines :: CodeItem -> TryItem -> [String]
+tryLines code try =
+  [ printf "        0x%04x - 0x%04x" (tryStartAddr try) end
+  ] where end = tryStartAddr try + fromIntegral (tryInsnCount try)
+          --catches = codeHandlers code !! tryHandlerOff try
 
 main :: IO ()
 main = mapM_ processFile =<< getArgs

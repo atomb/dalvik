@@ -117,6 +117,13 @@ data TryItem
     , tryHandlerOff :: Word16
     } deriving (Show)
 
+data CatchHandler
+  = CatchHandler
+    { handlerOff   :: Word32
+    , handlers     :: [(TypeId, Word32)]
+    , catchAllAddr :: Maybe Word32
+    } deriving (Show)
+
 data CodeItem
   = CodeItem
     { codeRegs      :: Word16
@@ -124,10 +131,7 @@ data CodeItem
     , codeOutSize   :: Word16
     , codeDebugOff  :: Word32
     , codeInsns     :: [Word16] --[Instruction]
-    {-
-    , tryItems  :: [TryItem]
-    , handlers  :: [CatchHandler]
-    -}
+    , codeTryItems  :: [TryItem]
     } deriving (Show)
 
 showSDI :: StringDataItem -> String
@@ -171,6 +175,12 @@ loadDex bs = do
            , dexMethods = methods
            , dexClasses = classes
            }
+
+{-
+currDexOffset :: DexFile -> Get Word32
+currDexOffset dex =
+  (dexFileLen (dexHeader dex) -) <$> (fromIntegral `fmap` remaining)
+-}
 
 doSection :: Word32 -> Word32 -> (BS.ByteString -> Word32 -> Get a)
           -> BS.ByteString
@@ -271,10 +281,7 @@ parseStrings bs size = do
   return . Map.fromList . zip [0..] $ strs
 
 parseStringDataItem :: Get StringDataItem
-parseStringDataItem = do
-  len <- getULEB128
-  str <- getString
-  return $ SDI len str
+parseStringDataItem = SDI <$> getULEB128 <*> getString
 
 getString :: Get [Word8]
 getString = do
@@ -371,9 +378,14 @@ parseCodeItem = do
   debugInfoOff <- getWord32le
   insnCount <- getWord32le
   insns <- replicateM (fromIntegral insnCount) getWord16le
-  --_padding <- getWord16le
-  -- TODO: parse tries
-  -- TODO: parse handlers
+  _ <- if tryCount > 0 && odd insnCount then getWord16le else return 0
+  tryItems <- replicateM (fromIntegral tryCount) parseTryItem
+  rem <- remaining
+  handlers <-
+    if tryCount == 0 then return []
+    else
+      do handlerSize <- getULEB128
+         replicateM (fromIntegral handlerSize) (parseEncodedCatchHandler rem)
   -- insns <- either fail return $ decodeInstructions insnWords
   return $ CodeItem
            { codeRegs = regCount
@@ -381,12 +393,33 @@ parseCodeItem = do
            , codeOutSize = outCount
            , codeDebugOff = debugInfoOff
            , codeInsns = insns
+           , codeTryItems = tryItems
            }
+  where odd = (== 1) . (`mod` 2)
+
+parseTryItem :: Get TryItem
+parseTryItem = TryItem <$> getWord32le <*> getWord16le <*> getWord16le
+
+parseEncodedCatchHandler :: Int -> Get CatchHandler
+parseEncodedCatchHandler startRem = do
+  rem <- remaining
+  handlerSize <- getSLEB128
+  handlers <- replicateM (abs (fromIntegral handlerSize))
+              parseEncodedTypeAddrPair
+  catchAllAddr <- if handlerSize <= 0
+                  then Just <$> getULEB128
+                  else return Nothing
+  let off = fromIntegral $ startRem - rem
+  return $ CatchHandler off handlers catchAllAddr
+
+parseEncodedTypeAddrPair :: Get (TypeId, Word32)
+parseEncodedTypeAddrPair =
+  (,) <$> (fromIntegral `fmap` getULEB128) <*> getULEB128
 
 parseClassDefs :: BS.ByteString -> Word32 -> Get (Map TypeId Class)
-parseClassDefs bs size = do
-  classes <- replicateM (fromIntegral size) (parseClassDef bs)
-  return . Map.fromList . zip [0..] $ classes
+parseClassDefs bs size =
+  Map.fromList . zip [0..] <$>
+  replicateM (fromIntegral size) (parseClassDef bs)
 
 parseClassDef :: BS.ByteString -> Get Class
 parseClassDef bs = do
@@ -442,5 +475,3 @@ parseLinkInfo bs size = getByteString (fromIntegral size)
 
 s :: String -> BS.ByteString
 s = BS.pack . map toEnum . map fromEnum
-
-
