@@ -1,0 +1,42 @@
+Name:           dalvik
+Version:        0.1
+Cabal-Version:  >= 1.2
+Build-Type:     Simple
+License:        BSD3
+License-File:   LICENSE
+Copyright:      LICENSE
+Author:         Aaron Tomb <aarontomb@gmail.com>
+Maintainer:     aarontomb@gmail.com
+Stability:      experimental
+Synopsis:       Parser for the Dalvik virtual machine's DEX file format
+Description:    Parser for the Dalvik virtual machine's DEX file format
+Category:       Language
+
+Flag splitBase
+    Description: Choose the new smaller, split-up base package.
+
+Library
+    Extensions:
+
+    Build-Depends:  array,
+                    bytestring,
+                    cereal,
+                    containers
+
+    if flag(splitBase)
+        Build-Depends: base >= 3 && < 5
+    else
+        Build-Depends: base < 3
+
+    Hs-Source-Dirs: .
+    Exposed-Modules: Dalvik.AccessFlags
+                     Dalvik.Instruction
+                     Dalvik.LEB128
+                     Dalvik.Parser
+    Other-Modules:
+    GHC-Options: -Wall
+
+Executable Dexdumper
+    main-is: Dexdumper.hs
+    ghc-options: -Wall
+    build-depends: utf8-string
