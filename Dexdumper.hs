@@ -3,6 +3,7 @@ module Main where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.Word
 import System.Environment
 import Text.Printf
@@ -188,14 +189,25 @@ codeLines dex code =
     printf "%d 16-bit code units" (length (codeInsns code))
   , fld "      catches" $
     if null tries then "(none)" else show (length tries)
-  ] ++ concatMap (tryLines code) tries
+  ] ++ concatMap (tryLines dex code) tries
     where tries = codeTryItems code
 
-tryLines :: CodeItem -> TryItem -> [String]
-tryLines code try =
+tryLines :: DexFile -> CodeItem -> TryItem -> [String]
+tryLines dex code try =
   [ printf "        0x%04x - 0x%04x" (tryStartAddr try) end
-  ] where end = tryStartAddr try + fromIntegral (tryInsnCount try)
-          --catches = codeHandlers code !! tryHandlerOff try
+  ] ++ handlerLines ++ anyLine
+    where end = tryStartAddr try + fromIntegral (tryInsnCount try)
+          catches = filter
+                    ((== tryHandlerOff try) . fromIntegral . chHandlerOff)
+                    (codeHandlers code)
+          handlers = concatMap chHandlers catches
+          handlerLines = [ printf "          %s -> 0x%04x" tyStr addr |
+                           (ty, addr) <- handlers
+                         , let tyStr = pSDI (getTypeName dex ty)
+                         ]
+          anyLine = map
+                    (printf "          <any> -> 0x%04x")
+                    (mapMaybe chAllAddr catches)
 
 main :: IO ()
 main = mapM_ processFile =<< getArgs
