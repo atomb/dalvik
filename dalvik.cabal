@@ -19,6 +19,8 @@ Library
     Extensions:
 
     Build-Depends:  array,
+                    blaze-builder,
+                    blaze-textual,
                     bytestring,
                     cereal,
                     containers
@@ -33,9 +35,10 @@ Library
                      Dalvik.Instruction
                      Dalvik.LEB128
                      Dalvik.Parser
+                     Dalvik.Printer
     Other-Modules:
-    GHC-Options: -Wall
-    GHC-Prof-Options: -auto-all -caf-all
+    GHC-Options: -Wall -O2
+    GHC-Prof-Options: -prof -fprof-auto
 
 Executable Dexdumper
     main-is: Dexdumper.hs

@@ -6,6 +6,7 @@ import Data.Array
 import Data.Bits
 import Data.Int
 import Data.Word
+import Text.Printf
 
 type FieldId = Word16
 type MethodId = Word16
@@ -26,14 +27,14 @@ data Reg
     deriving (Show)
 
 data ConstArg
-  = Const4 Int8
-  | Const16 Int16
-  | ConstHigh16 Int16
-  | ConstWide16 Int16
-  | Const32 Word32
-  | ConstWide32 Int32
-  | ConstWide Word64
-  | ConstWideHigh16 Int16
+  = Const4 Int32
+  | Const16 Int32
+  | Const32 Int32
+  | ConstHigh16 Int32
+  | ConstWide16 Int64
+  | ConstWide32 Int64
+  | ConstWide Int64
+  | ConstWideHigh16 Int64
   | ConstString StringId
   | ConstStringJumbo StringId
   | ConstClass TypeId
@@ -147,7 +148,9 @@ data Instruction
   | FilledNewArrayRange TypeId [Reg16]
   | FillArrayData Word8 Word32 -- [Word8]
   | Throw Reg8
-  | Goto Int32
+  | Goto Int8
+  | Goto16 Int16
+  | Goto32 Int32
   | PackedSwitch Reg8 Word32
   | SparseSwitch Reg8 Word32
   | Cmp CmpOp Reg8 Reg8 Reg8
@@ -157,7 +160,7 @@ data Instruction
   | InstanceFieldOp AccessOp Reg4 Reg4 FieldId
   | StaticFieldOp AccessOp Reg8 FieldId
   -- TODO: how best to encode invoke instructions?
-  | Invoke InvokeKind MethodId [Word16]
+  | Invoke InvokeKind Bool MethodId [Word16]
   | Unop Unop Reg4 Reg4
   | IBinop Binop Bool Reg8 Reg8 Reg8
   | FBinop Binop Bool Reg8 Reg8 Reg8
@@ -165,7 +168,63 @@ data Instruction
   | FBinopAssign Binop Bool Reg4 Reg4
   | BinopLit16 Binop Reg4 Reg4 Int16
   | BinopLit8 Binop Reg8 Reg8 Int8
+  | PackedSwitchData Int32 [Word16]      -- TODO: Int32
+  | SparseSwitchData [Word16] [Word16]   -- TODO: Int32
+  | ArrayData Word16 Word32 [Word16] -- TODO
     deriving (Show)
+
+insnUnitCount :: Instruction -> Int
+insnUnitCount Nop = 1
+insnUnitCount (Move _ (R4 _) _) = 1
+insnUnitCount (Move _ (R8 _) _) = 2
+insnUnitCount (Move _ (R16 _) _) = 3
+insnUnitCount (Move1 _ _) = 1
+insnUnitCount ReturnVoid = 1
+insnUnitCount (Return _ _) = 1
+insnUnitCount (LoadConst _ (Const4 _)) = 1
+insnUnitCount (LoadConst _ (Const16 _)) = 2
+insnUnitCount (LoadConst _ (ConstHigh16 _)) = 2
+insnUnitCount (LoadConst _ (ConstWide16 _)) = 2
+insnUnitCount (LoadConst _ (Const32 _)) = 3
+insnUnitCount (LoadConst _ (ConstWide32 _)) = 3
+insnUnitCount (LoadConst _ (ConstWide _)) = 5
+insnUnitCount (LoadConst _ (ConstWideHigh16 _)) = 2
+insnUnitCount (LoadConst _ (ConstString _)) = 2
+insnUnitCount (LoadConst _ (ConstStringJumbo _)) = 3
+insnUnitCount (LoadConst _ (ConstClass _)) = 2
+insnUnitCount (MonitorEnter _) = 1
+insnUnitCount (MonitorExit _) = 1
+insnUnitCount (CheckCast _ _) = 2
+insnUnitCount (InstanceOf _ _ _) = 2
+insnUnitCount (ArrayLength _ _) = 1
+insnUnitCount (NewInstance _ _) = 2
+insnUnitCount (NewArray _ _ _) = 2
+insnUnitCount (FilledNewArray _ _) = 3
+insnUnitCount (FilledNewArrayRange _ _) = 3
+insnUnitCount (FillArrayData _ _) = 3
+insnUnitCount (Throw _) = 1
+insnUnitCount (Goto _) = 1
+insnUnitCount (Goto16 _) = 2
+insnUnitCount (Goto32 _) = 3
+insnUnitCount (PackedSwitch _ _) = 3
+insnUnitCount (SparseSwitch _ _) = 3
+insnUnitCount (Cmp _ _ _ _) = 2
+insnUnitCount (If _ _ _ _) = 2
+insnUnitCount (IfZero _ _ _) = 2
+insnUnitCount (ArrayOp _ _ _ _) = 2
+insnUnitCount (InstanceFieldOp _ _ _ _) = 2
+insnUnitCount (StaticFieldOp _ _ _) = 2
+insnUnitCount (Invoke _ _ _ _) = 3
+insnUnitCount (Unop _ _ _) = 1
+insnUnitCount (IBinop _ _ _ _ _) = 2
+insnUnitCount (FBinop _ _ _ _ _) = 2
+insnUnitCount (IBinopAssign _ _ _ _) = 1
+insnUnitCount (FBinopAssign _ _ _ _) = 1
+insnUnitCount (BinopLit16 _ _ _ _) = 2
+insnUnitCount (BinopLit8 _ _ _ _) = 2
+insnUnitCount (PackedSwitchData _ ts) = length ts + 4
+insnUnitCount (SparseSwitchData _ ts) = (length ts * 2) + 2
+insnUnitCount (ArrayData _ _ vs) = length vs + 4
 
 splitWord8 :: Word8 -> (Word4, Word4)
 splitWord8 w = (fromIntegral $ w `shiftR` 4, fromIntegral $ w .&. 0x0F)
@@ -183,14 +242,14 @@ type IParseResult = Either DecodeError Instruction
 invalidOpcode :: Word8 -> DecodeError
 invalidOpcode op = "Invalid opcode: " ++ show op
 
-prematureEnd :: Word8 -> DecodeError
-prematureEnd op = "Premature end of data stream at opcode: " ++ show op
+prematureEnd :: Word8 -> Word16 -> DecodeError
+prematureEnd op w =
+  printf "Premature end of data stream at opcode %02x (%04x)" op w
 
 invalidOp :: Word8 -> DecodeError
 invalidOp op = "Invalid opcode: " ++ show op
 
 {- As named in the Dalvik VM Instruction Formats document. -}
--- TODO: proofread these
 data IFormatParser
   = IF10x Instruction
   | IF12x (Word4 -> Word4 -> Instruction)
@@ -242,15 +301,15 @@ iparseTable = array (0x00, 0xFF) $
   , (0x10, ret MWide)
   , (0x11, ret MObject)
   -- Constants
-  , (0x12, IF11n $ \r c -> LoadConst (R4 r) (Const4 $ fromIntegral c))
-  , (0x13, IF21s $ \r c -> LoadConst (R8 r) (Const16 $ fromIntegral c))
-  , (0x14, IF31i $ \r c -> LoadConst (R8 r) (Const32 c))
-  , (0x15, IF21h $ \r c -> LoadConst (R8 r) (ConstHigh16 $ fromIntegral c))
-  , (0x16, IF21s $ \r c -> LoadConst (R8 r) (ConstWide16 $ fromIntegral c))
-  , (0x17, IF31i $ \r c -> LoadConst (R8 r) (ConstWide32 $ fromIntegral c))
-  , (0x18, IF51l $ \r c -> LoadConst (R8 r) (ConstWide c))
-  , (0x19, IF21h $ \r c -> LoadConst (R8 r) (ConstWideHigh16 $ fromIntegral c))
-  , (0x1a, IF21c $ \r i -> LoadConst (R8 r) (ConstString $ fromIntegral i))
+  , (0x12, IF11n $ \r c -> LoadConst (R4 r) (const4 c))
+  , (0x13, IF21s $ \r c -> LoadConst (R8 r) (const16 c))
+  , (0x14, IF31i $ \r c -> LoadConst (R8 r) (const32 c))
+  , (0x15, IF21h $ \r c -> LoadConst (R8 r) (constHigh16 c))
+  , (0x16, IF21s $ \r c -> LoadConst (R8 r) (constWide16 c))
+  , (0x17, IF31i $ \r c -> LoadConst (R8 r) (constWide32 c))
+  , (0x18, IF51l $ \r c -> LoadConst (R8 r) (constWide c))
+  , (0x19, IF21h $ \r c -> LoadConst (R8 r) (constWideHigh16 c))
+  , (0x1a, IF21c $ \r i -> LoadConst (R8 r) (constString i))
   , (0x1b, IF31c $ \r i -> LoadConst (R8 r) (ConstStringJumbo i))
   , (0x1c, IF21c $ \r i -> LoadConst (R8 r) (ConstClass i))
   -- Monitors
@@ -270,8 +329,8 @@ iparseTable = array (0x00, 0xFF) $
   , (0x27, IF11x Throw)
   -- Unconditional branches
   , (0x28, IF10t $ Goto . fromIntegral)
-  , (0x29, IF20t $ Goto . fromIntegral)
-  , (0x2a, IF30t $ Goto . fromIntegral)
+  , (0x29, IF20t $ Goto16 . fromIntegral)
+  , (0x2a, IF30t $ Goto32 . fromIntegral)
   -- Switch
   , (0x2b, IF31t $ \r o -> PackedSwitch r o)
   , (0x2c, IF31t $ \r o -> SparseSwitch r o)
@@ -503,7 +562,16 @@ iparseTable = array (0x00, 0xFF) $
   , (0xfd, InvalidOp)
   , (0xfe, InvalidOp)
   , (0xff, InvalidOp)
-  ] where unop op = IF12x $ Unop op
+  ] where const4 = Const4 . fromIntegral . signExt4
+          const16 = Const16 . signExt16 . fromIntegral
+          const32 = Const32 . fromIntegral
+          constHigh16 = ConstHigh16 . (`shiftL` 16) . fromIntegral
+          constWide16 = ConstWide16 . fromIntegral . signExt16 . fromIntegral
+          constWide32 = ConstWide32 . signExt32 . fromIntegral
+          constWide = ConstWide . fromIntegral
+          constWideHigh16 = ConstWideHigh16 . (`shiftL` 48) . fromIntegral
+          constString = ConstString . fromIntegral
+          unop op = IF12x $ Unop op
           binop c w op = IF23x $ c op w
           binopa c w op = IF12x $ c op w
           ibinop = binop IBinop False
@@ -524,8 +592,8 @@ iparseTable = array (0x00, 0xFF) $
           arrop op = IF23x $ ArrayOp op
           instop op = IF22c $ InstanceFieldOp op
           statop op = IF21c $ StaticFieldOp op
-          invoke ty = IF35c $ \f args -> Invoke ty f (map fromIntegral args)
-          invokeRange ty = IF3rc $ \f rs -> Invoke ty f rs
+          invoke ty = IF35c $ \f args -> Invoke ty False f (map fromIntegral args)
+          invokeRange ty = IF3rc $ \f rs -> Invoke ty True f rs
           ret ty = IF11x $ Return ty . R8
           move1 ty = IF11x $ Move1 ty . R8
 
@@ -547,50 +615,81 @@ combine16' w1 w2 w3 w4 =
   (fromIntegral w3 `shiftL` 16) .|.
   fromIntegral w4
 
+signExt4 :: Word8 -> Int8
+signExt4 w = w' .|. (if w' .&. 0x8 /= 0 then 0xF0 else 0)
+  where w' = fromIntegral w
+
+signExt8 :: Word16 -> Int16
+signExt8 w = w' .|. (if w' .&. 0x80 /= 0 then 0xFF00 else 0)
+  where w' = fromIntegral w
+
+signExt16 :: Word32 -> Int32
+signExt16 w = w' .|. (if w' .&. 0x8000 /= 0 then 0xFFFF0000 else 0)
+  where w' = fromIntegral w
+
+signExt32 :: Int64 -> Int64
+signExt32 w =
+  w' .|. (if w' .&. 0x80000000 /= 0 then 0xFFFFFFFF00000000 else 0)
+    where w' = fromIntegral w
+
 iparser :: Word8 -> IFormatParser
 iparser = (!) iparseTable
 
 decodeInstructions :: [Word16] -> Either DecodeError [Instruction]
 decodeInstructions [] = return []
+decodeInstructions (0x0100 : sz : k : k' : ws) =
+  liftM (PackedSwitchData key ts :) $ decodeInstructions ws'
+    where key = combine16 k' k
+          (ts, ws') = splitAt (2 * fromIntegral sz) ws
+decodeInstructions (0x0200 : sz : ws) =
+  liftM (SparseSwitchData ks ts :) $ decodeInstructions ws''
+    where (ks, ws') = splitAt sz' ws
+          (ts, ws'') = splitAt sz' ws'
+          sz' = fromIntegral $ 2 * sz
+decodeInstructions (0x0300 : esz : sz : sz' : ws) =
+  liftM (ArrayData esz size vs :) $ decodeInstructions ws'
+    where size = combine16 sz' sz
+          count = ((size * fromIntegral esz) + 1) `div` 2
+          (vs, ws') = splitAt (fromIntegral count) ws
 decodeInstructions (w : ws) = liftM2 (:) insn (decodeInstructions ws'')
   where
-    (rp, op) = splitWord16 w
+    (aa, op) = splitWord16 w
+    (b, a) = splitWord8 aa
     (insn, ws'') =
       case (iparser op, ws) of
         (IF10x  f, _) -> (return f, ws)
-        (IF12x  f, _) -> (return $ f (snd4 rp) (fst4 rp), ws)
-        (IF11n  f, _) -> (return $ f (snd4 rp) (fst4 rp), ws)
-        (IF11x  f, _) -> (return $ f rp, ws)
-        (IF10t  f, _) -> (return $ f rp, ws)
+        (IF12x  f, _) -> (return $ f a b, ws)
+        (IF11n  f, _) -> (return $ f a b, ws)
+        (IF11x  f, _) -> (return $ f aa, ws)
+        (IF10t  f, _) -> (return $ f aa, ws)
         (IF20t  f, w1 : ws') -> (return $ f w1, ws')
-        (IF22x  f, w1 : ws') -> (return $ f rp w1, ws')
-        (IF21t  f, w1 : ws') -> (return $ f rp w1, ws')
-        (IF21s  f, w1 : ws') -> (return $ f rp w1, ws')
-        (IF21h  f, w1 : ws') -> (return $ f rp w1, ws')
-        (IF21c  f, w1 : ws') -> (return $ f rp w1, ws')
-        (IF23x  f, w1 : ws') -> (return $ f rp (snd8 w1) (fst8 w1), ws')
-        (IF22b  f, w1 : ws') -> (return $ f rp (snd8 w1) (fst8 w1), ws')
-        (IF22t  f, w1 : ws') -> (return $ f (snd4 rp) (fst4 rp) w1, ws')
-        (IF22s  f, w1 : ws') -> (return $ f (snd4 rp) (fst4 rp) w1, ws')
-        (IF22c  f, w1 : ws') -> (return $ f (snd4 rp) (fst4 rp) w1, ws')
-        (IF22cs f, w1 : ws') -> (return $ f (snd4 rp) (fst4 rp) w1, ws')
+        (IF22x  f, w1 : ws') -> (return $ f aa w1, ws')
+        (IF21t  f, w1 : ws') -> (return $ f aa w1, ws')
+        (IF21s  f, w1 : ws') -> (return $ f aa w1, ws')
+        (IF21h  f, w1 : ws') -> (return $ f aa w1, ws')
+        (IF21c  f, w1 : ws') -> (return $ f aa w1, ws')
+        (IF23x  f, w1 : ws') -> (return $ f aa (snd8 w1) (fst8 w1), ws')
+        (IF22b  f, w1 : ws') -> (return $ f aa (snd8 w1) (fst8 w1), ws')
+        (IF22t  f, w1 : ws') -> (return $ f a b w1, ws')
+        (IF22s  f, w1 : ws') -> (return $ f a b w1, ws')
+        (IF22c  f, w1 : ws') -> (return $ f a b w1, ws')
+        (IF22cs f, w1 : ws') -> (return $ f a b w1, ws')
         (IF30t  f, w1 : w2 : ws') -> (return $ f (combine16 w2 w1), ws')
         (IF32x  f, w1 : w2 : ws') -> (return $ f w1 w2, ws')
-        (IF31i  f, w1 : w2 : ws') -> (return $ f rp (combine16 w2 w1), ws')
-        (IF31t  f, w1 : w2 : ws') -> (return $ f rp (combine16 w2 w1), ws')
-        (IF31c  f, w1 : w2 : ws') -> (return $ f rp (combine16 w2 w1), ws')
+        (IF31i  f, w1 : w2 : ws') -> (return $ f aa (combine16 w2 w1), ws')
+        (IF31t  f, w1 : w2 : ws') -> (return $ f aa (combine16 w2 w1), ws')
+        (IF31c  f, w1 : w2 : ws') -> (return $ f aa (combine16 w2 w1), ws')
         (IF35c  fn, w1 : w2 : ws') ->
           if b <= 5
             then (return $ fn w1 (take (fromIntegral b) [d, e, f, g, a]), ws')
             else (fail "invalid B value for IF35c encoding", ws')
-          where (b, a) = splitWord8 rp
-                (g, f, e, d) = splitWord16' w2
+          where (g, f, e, d) = splitWord16' w2
         (IF3rc  fn, w1 : w2 : ws') ->
-          (return $ fn w1 [w2..((w2 + fromIntegral rp) - 1)],  ws')
+          (return $ fn w1 [w2..((w2 + fromIntegral aa) - 1)],  ws')
         (IF51l  fn, w1 : w2 : w3 : w4 : ws') ->
-          (return $ fn rp (combine16' w4 w3 w2 w1), ws')
+          (return $ fn aa (combine16' w4 w3 w2 w1), ws')
         (InvalidOp, _) -> (fail $ invalidOp op, ws)
-        _ -> (fail $ prematureEnd op, ws)
+        _ -> (fail $ prematureEnd op w, ws)
 
 {-
 encodeInstructions :: [Instruction] -> [Word16]

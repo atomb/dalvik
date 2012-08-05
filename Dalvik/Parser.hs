@@ -128,7 +128,8 @@ data CodeItem
     , codeInSize    :: Word16
     , codeOutSize   :: Word16
     , codeDebugOff  :: Word32
-    , codeInsns     :: [Word16] --[Instruction]
+    , codeInsnOff   :: Word32
+    , codeInsns     :: [Word16]
     , codeTryItems  :: [TryItem]
     , codeHandlers  :: [CatchHandler]
     } deriving (Show)
@@ -139,6 +140,7 @@ showSDI (SDI _ s) = show (BS.pack s)
 data DexFile =
   DexFile
   { dexHeader       :: DexHeader
+  , dexMap          :: Map Word32 MapItem
   , dexStrings      :: Map StringId StringDataItem
   , dexTypeNames    :: Map TypeId StringId
   , dexProtos       :: Map ProtoId Proto
@@ -160,13 +162,14 @@ loadDex bs = do
   fields   <- doSection (dexOffFields h) (dexNumFields h) parseFields bs
   methods  <- doSection (dexOffMethods h) (dexNumMethods h) parseMethods bs
   classes  <- doSection (dexOffClassDefs h) (dexNumClassDefs h)
-                        parseClassDefs bs
+                        (parseClassDefs h) bs
   {-
   ddata    <- doSection (dexDataOff h) (dexDataSize h) parseData bs
   linkInfo <- doSection (dexLinkOff h) (dexLinkSize h) parseLinkInfo bs
   -}
   return $ DexFile
            { dexHeader = h
+           , dexMap = itemMap
            , dexStrings = strings
            , dexTypeNames = types
            , dexProtos = protos
@@ -175,11 +178,9 @@ loadDex bs = do
            , dexClasses = classes
            }
 
-{-
-currDexOffset :: DexFile -> Get Word32
-currDexOffset dex =
-  (dexFileLen (dexHeader dex) -) <$> (fromIntegral `fmap` remaining)
--}
+currDexOffset :: DexHeader -> Get Word32
+currDexOffset hdr =
+  ((dexFileLen hdr) -) <$> (fromIntegral `fmap` remaining)
 
 doSection :: Word32 -> Word32 -> (BS.ByteString -> Word32 -> Get a)
           -> BS.ByteString
@@ -257,7 +258,7 @@ parseMap _ _ = do
 parseMapItem :: Get MapItem
 parseMapItem = do
   iType <- getWord16le
-  unused <- getWord16le
+  _unused <- getWord16le
   iSize <- getWord32le
   iOff <- getWord32le
   return $ MapItem iType iSize iOff
@@ -288,7 +289,7 @@ getString = do
   if b == 0 then return [] else (b:) <$> getString
 
 parseTypes :: BS.ByteString -> Word32 -> Get (Map TypeId StringId)
-parseTypes bs size =
+parseTypes _ size =
   (Map.fromList . zip [0..]) <$> replicateM (fromIntegral size) getWord32le
 
 parseTypeList :: Get [TypeId]
@@ -315,7 +316,7 @@ parseProto bs = do
            }
 
 parseFields :: BS.ByteString -> Word32 -> Get (Map FieldId Field)
-parseFields bs size = do
+parseFields _ size = do
   fields <- replicateM (fromIntegral size) parseField
   return . Map.fromList . zip [0..] $ fields
 
@@ -340,42 +341,44 @@ parseEncodedField mprev = do
            }
 
 parseMethods :: BS.ByteString -> Word32 -> Get (Map MethodId Method)
-parseMethods bs size = do
+parseMethods _ size = do
   methods <- replicateM (fromIntegral size) parseMethod
   return . Map.fromList . zip [0..] $ methods
 
 parseMethod :: Get Method
 parseMethod = Method <$> getWord16le <*> getWord16le <*> getWord32le
 
-parseEncodedMethods :: BS.ByteString -> Word32 -> Maybe MethodId
+parseEncodedMethods :: DexHeader -> BS.ByteString -> Word32 -> Maybe MethodId
                     -> Get [EncodedMethod]
-parseEncodedMethods bs 0 _ = return []
-parseEncodedMethods bs n mprev = do
-  emeth <- parseEncodedMethod bs mprev
-  emeths <- parseEncodedMethods bs (n - 1) (Just $ methId emeth)
+parseEncodedMethods _ _ 0 _ = return []
+parseEncodedMethods hdr bs n mprev = do
+  emeth <- parseEncodedMethod hdr bs mprev
+  emeths <- parseEncodedMethods hdr bs (n - 1) (Just $ methId emeth)
   return $ emeth : emeths
 
-parseEncodedMethod :: BS.ByteString -> Maybe MethodId -> Get EncodedMethod
-parseEncodedMethod bs mprev = do
+parseEncodedMethod :: DexHeader -> BS.ByteString -> Maybe MethodId
+                   -> Get EncodedMethod
+parseEncodedMethod hdr bs mprev = do
   methIdxDiff <- fromIntegral <$> getULEB128 -- TODO: data loss?
   let methIdx = maybe methIdxDiff (+ methIdxDiff) mprev
   accessFlags <- getULEB128
   codeOffset <- getULEB128
-  codeItem <- subGet' bs codeOffset Nothing (Just <$> parseCodeItem)
+  codeItem <- subGet' bs codeOffset Nothing (Just <$> parseCodeItem hdr)
   return $ EncodedMethod
            { methId = methIdx
            , methAccessFlags = accessFlags
            , methCode = codeItem
            }
 
-parseCodeItem :: Get CodeItem
-parseCodeItem = do
+parseCodeItem :: DexHeader -> Get CodeItem
+parseCodeItem hdr = do
   regCount <- getWord16le
   inCount <- getWord16le
   outCount <- getWord16le
   tryCount <- getWord16le
   debugInfoOff <- getWord32le
   insnCount <- getWord32le
+  insnOff <- currDexOffset hdr
   insns <- replicateM (fromIntegral insnCount) getWord16le
   _ <- if tryCount > 0 && odd insnCount then getWord16le else return 0
   tryItems <- replicateM (fromIntegral tryCount) parseTryItem
@@ -391,6 +394,7 @@ parseCodeItem = do
            , codeInSize = inCount
            , codeOutSize = outCount
            , codeDebugOff = debugInfoOff
+           , codeInsnOff = insnOff
            , codeInsns = insns
            , codeTryItems = tryItems
            , codeHandlers = handlers
@@ -415,13 +419,14 @@ parseEncodedTypeAddrPair :: Get (TypeId, Word32)
 parseEncodedTypeAddrPair =
   (,) <$> (fromIntegral `fmap` getULEB128) <*> getULEB128
 
-parseClassDefs :: BS.ByteString -> Word32 -> Get (Map TypeId Class)
-parseClassDefs bs size =
+parseClassDefs :: DexHeader -> BS.ByteString -> Word32
+               -> Get (Map TypeId Class)
+parseClassDefs hdr bs size =
   Map.fromList . zip [0..] <$>
-  replicateM (fromIntegral size) (parseClassDef bs)
+  replicateM (fromIntegral size) (parseClassDef hdr bs)
 
-parseClassDef :: BS.ByteString -> Get Class
-parseClassDef bs = do
+parseClassDef :: DexHeader -> BS.ByteString -> Get Class
+parseClassDef hdr bs = do
   classIdx        <- getWord32le
   accessFlags     <- getWord32le
   superclassId    <- getWord32le
@@ -433,7 +438,7 @@ parseClassDef bs = do
   staticValuesOff <- getWord32le
   (staticFields, instanceFields,
    directMethods, virtualMethods) <-
-      subGet' bs dataOff ([], [], [], []) (parseClassData bs)
+      subGet' bs dataOff ([], [], [], []) (parseClassData hdr bs)
   return $ Class
            { classId = fromIntegral classIdx -- TODO: can this lose information?
            , classAccessFlags = accessFlags
@@ -450,27 +455,49 @@ parseClassDef bs = do
            , classStaticValuesOff = staticValuesOff
            }
 
-parseClassData :: BS.ByteString
+parseClassData :: DexHeader -> BS.ByteString
                -> Get ( [EncodedField], [EncodedField]
                       , [EncodedMethod], [EncodedMethod] )
-parseClassData bs = do
+parseClassData hdr bs = do
   staticFieldCount <- getULEB128
   instanceFieldCount <- getULEB128
   directMethodCount <- getULEB128
   virtualMethodCount <- getULEB128
   staticFields <- parseEncodedFields staticFieldCount Nothing
   instanceFields <- parseEncodedFields instanceFieldCount Nothing
-  directMethods <- parseEncodedMethods bs directMethodCount Nothing
-  virtualMethods <- parseEncodedMethods bs virtualMethodCount Nothing
+  directMethods <- parseEncodedMethods hdr bs directMethodCount Nothing
+  virtualMethods <- parseEncodedMethods hdr bs virtualMethodCount Nothing
   return (staticFields, instanceFields, directMethods, virtualMethods)
 
 parseData :: BS.ByteString -> Word32 -> Get BS.ByteString
-parseData bs size = getByteString (fromIntegral size)
+parseData _ size = getByteString (fromIntegral size)
 
 parseLinkInfo :: BS.ByteString -> Word32 -> Get BS.ByteString
-parseLinkInfo bs size = getByteString (fromIntegral size)
+parseLinkInfo _ size = getByteString (fromIntegral size)
 
 {- Utility functions -}
 
 str :: String -> BS.ByteString
 str = BS.pack . map toEnum . map fromEnum
+
+getStr :: DexFile -> StringId -> StringDataItem
+getStr dex i = Map.findWithDefault (error msg) i (dexStrings dex)
+  where msg = "Unknown string ID " ++ show i
+
+getTypeName :: DexFile -> TypeId -> StringDataItem
+getTypeName dex i =
+  getStr dex (Map.findWithDefault (error msg) i (dexTypeNames dex))
+    where msg = "Uknown type ID " ++ show i
+
+getField :: DexFile -> FieldId -> Field
+getField dex i = Map.findWithDefault (error msg) i (dexFields dex)
+  where msg = "Unknown field ID " ++ show i
+
+getMethod :: DexFile -> MethodId -> Method
+getMethod dex i = Map.findWithDefault (error msg) i (dexMethods dex)
+  where msg = "Unknown method ID " ++ show i
+
+getProto :: DexFile -> ProtoId -> Proto
+getProto dex i = Map.findWithDefault (error msg) i (dexProtos dex)
+  where msg = "Unknown prototype ID " ++ show i
+

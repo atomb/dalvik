@@ -1,6 +1,10 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Dalvik.AccessFlags where
 
 import Data.Bits
+import Data.List
+import Data.Monoid
+import Data.String
 import Data.Word
 import Text.Printf
 
@@ -51,7 +55,7 @@ flagCode ACC_DECLARED_SYNCHRONIZED = 0x20000
 
 data AccessType = AClass | AField | AMethod deriving Eq
 
-tyString :: AccessType -> String
+tyString :: (IsString s) => AccessType -> s
 tyString AClass = "class"
 tyString AField = "field"
 tyString AMethod = "method"
@@ -78,10 +82,9 @@ codeFlag AClass  0x04000 = ACC_ENUM
 codeFlag AField  0x04000 = ACC_ENUM
 codeFlag AMethod 0x10000 = ACC_CONSTRUCTOR
 codeFlag AMethod 0x20000 = ACC_DECLARED_SYNCHRONIZED
-codeFlag ty bits =
-  error $ printf "(unknown access flag %08x for %s)" bits (tyString ty)
+codeFlag _ bits = error $ printf "(unknown access flag %08x)" bits
 
-flagString :: AccessFlag -> String
+flagString :: (IsString s) => AccessFlag -> s
 flagString ACC_PUBLIC = "PUBLIC"
 flagString ACC_PRIVATE = "PRIVATE"
 flagString ACC_PROTECTED = "PROTECTED"
@@ -102,9 +105,9 @@ flagString ACC_ENUM = "ENUM"
 flagString ACC_CONSTRUCTOR = "CONSTRUCTOR"
 flagString ACC_DECLARED_SYNCHRONIZED = "DECLARED_SYNCHRONIZED"
 
-flagsString :: AccessType -> Word32 -> String
-flagsString ty w =
-  unwords [ flagString (codeFlag ty c) | c <- allCodes, w .&. c /= 0 ]
+flagsString :: (IsString s, Monoid s) => AccessType -> Word32 -> s
+flagsString ty w = mconcat $ intersperse " "
+  [ flagString (codeFlag ty c) | c <- allCodes, w .&. c /= 0 ]
     where allCodes = [ 0x00001, 0x00002, 0x00004, 0x00008
                      , 0x00010, 0x00020, 0x00040, 0x00080
                      , 0x00100, 0x00200, 0x00400, 0x00800
