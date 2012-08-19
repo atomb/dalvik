@@ -262,6 +262,17 @@ fieldStr dex fid = classStr +++ "." +++ fldStr +++ ":" +++ descStr
 methodStr :: DexFile -> MethodId -> Str
 methodStr dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
   where meth = getMethod dex mid
+        classStr = pSDI . tailSDI . getTypeName dex $ methClassId meth
+        nameStr = pSDI . getStr dex $ methNameId meth
+        descStr = protoDesc dex . getProto dex $ methProtoId meth
+        tailSDI (SDI l bs) = SDI (l - 2) (map slashToDot . init . tail $ bs)
+        slashToDot 36 = 46
+        slashToDot 47 = 46
+        slashToDot n = n
+
+methodStr' :: DexFile -> MethodId -> Str
+methodStr' dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
+  where meth = getMethod dex mid
         classStr = pSDI . getTypeName dex $ methClassId meth
         nameStr = pSDI . getStr dex $ methNameId meth
         descStr = protoDesc dex . getProto dex $ methProtoId meth
@@ -378,7 +389,7 @@ insnString dex _ (Invoke kind range mid args) =
          [ "{" +++
            mconcat (intersperse  ", " (map iregStr args)) +++
            "}"
-         , methodStr dex mid
+         , methodStr' dex mid
          ] -- +++
   -- methodComm meth
 insnString _ _ (Unop op r1 r2) =
