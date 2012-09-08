@@ -3,151 +3,26 @@ module Dalvik.Parser where
 import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map as Map
+import Data.Int
 import Data.Map (Map)
 import Data.Serialize.Get
+import Data.Text.Encoding.Error
+import qualified Data.Text.Lazy as LT
+import Data.Text.Lazy.Encoding
 import Data.Word
 
 import Dalvik.AccessFlags
+import Dalvik.DebugInfo
 import Dalvik.Instruction
 import Dalvik.LEB128
+import Dalvik.Types
 
 {-
 Based on documentation from:
     http://netmite.com/android/mydroid/dalvik/docs/dex-format.htm
 -}
-
-data DexHeader =
-  DexHeader
-  { dexMagic        :: BS.ByteString
-  , dexVersion      :: BS.ByteString
-  , dexChecksum     :: Word32
-  , dexSHA1         :: [Word8]
-  , dexFileLen      :: Word32
-  , dexHdrLen       :: Word32
-  , dexLinkSize     :: Word32
-  , dexLinkOff      :: Word32
-  , dexMapOff       :: Word32
-  , dexNumStrings   :: Word32
-  , dexOffStrings   :: Word32
-  , dexNumTypes     :: Word32
-  , dexOffTypes     :: Word32
-  , dexNumProtos    :: Word32
-  , dexOffProtos    :: Word32
-  , dexNumFields    :: Word32
-  , dexOffFields    :: Word32
-  , dexNumMethods   :: Word32
-  , dexOffMethods   :: Word32
-  , dexNumClassDefs :: Word32
-  , dexOffClassDefs :: Word32
-  , dexDataSize     :: Word32
-  , dexDataOff      :: Word32
-  } deriving (Show)
-
-type ProtoId = Word16
-type ParamListId = Word32
-
-data MapItem
-  = MapItem {
-      itemType :: Word16
-    , itemSize :: Word32
-    , itemOff  :: Word32
-    } deriving (Show)
-
-data StringDataItem = SDI Word32 [Word8]
-  deriving (Show)
-
-data Field
-  = Field {
-      fieldClassId :: TypeId
-    , fieldTypeId  :: TypeId
-    , fieldNameId  :: StringId
-    } deriving (Show)
-
-data EncodedField
-  = EncodedField {
-      fieldId :: FieldId
-    , fieldAccessFlags :: AccessFlags
-    } deriving (Show)
-
-data Proto
-  = Proto {
-      protoShortDesc :: StringId
-    , protoRet       :: TypeId
-    , protoParams    :: [TypeId]
-    } deriving (Show)
-
-data Method
-  = Method {
-      methClassId  :: TypeId
-    , methProtoId  :: ProtoId
-    , methNameId   :: StringId
-    } deriving (Show)
-
-data EncodedMethod
-  = EncodedMethod {
-      methId :: MethodId
-    , methAccessFlags :: AccessFlags
-    , methCode :: Maybe CodeItem
-    } deriving (Show)
-
-data Class
-  = Class
-    { classId :: TypeId
-    , classAccessFlags :: AccessFlags
-    , classSuperId :: TypeId
-    , classInterfacesOff :: Word32
-    , classInterfaces :: [TypeId]
-    , classSourceNameId :: StringId
-    , classAnnotsOff :: Word32
-    , classStaticFields :: [EncodedField]
-    , classInstanceFields :: [EncodedField]
-    , classDirectMethods :: [EncodedMethod]
-    , classVirtualMethods :: [EncodedMethod]
-    , classDataOff :: Word32
-    , classStaticValuesOff :: Word32
-    } deriving (Show)
-
-data TryItem
-  = TryItem
-    { tryStartAddr  :: Word32
-    , tryInsnCount  :: Word16
-    , tryHandlerOff :: Word16
-    } deriving (Show)
-
-data CatchHandler
-  = CatchHandler
-    { chHandlerOff :: Word32
-    , chHandlers   :: [(TypeId, Word32)]
-    , chAllAddr    :: Maybe Word32
-    } deriving (Show)
-
-data CodeItem
-  = CodeItem
-    { codeRegs      :: Word16
-    , codeInSize    :: Word16
-    , codeOutSize   :: Word16
-    , codeDebugOff  :: Word32
-    , codeInsnOff   :: Word32
-    , codeInsns     :: [Word16]
-    , codeTryItems  :: [TryItem]
-    , codeHandlers  :: [CatchHandler]
-    } deriving (Show)
-
-showSDI :: StringDataItem -> String
-showSDI (SDI _ s) = show (BS.pack s)
-
-data DexFile =
-  DexFile
-  { dexHeader       :: DexHeader
-  , dexMap          :: Map Word32 MapItem
-  , dexStrings      :: Map StringId StringDataItem
-  , dexTypeNames    :: Map TypeId StringId
-  , dexProtos       :: Map ProtoId Proto
-  , dexFields       :: Map FieldId Field
-  , dexMethods      :: Map MethodId Method
-  , dexClasses      :: Map TypeId Class
-  } deriving (Show)
 
 loadDexIO :: String -> IO (Either String DexFile)
 loadDexIO f = loadDex <$> BS.readFile f
@@ -246,6 +121,8 @@ parseDexHeader = do
            , dexDataSize = dataSize
            , dexDataOff = dataOff
            }
+  where str :: String -> BS.ByteString
+        str = BS.pack . map toEnum . map fromEnum
 
 {- Section parsing -}
 
@@ -281,7 +158,10 @@ parseStrings bs size = do
   return . Map.fromList . zip [0..] $ strs
 
 parseStringDataItem :: Get StringDataItem
-parseStringDataItem = SDI <$> getULEB128 <*> getString
+parseStringDataItem = SDI <$> getULEB128 <*> (decode <$> getString)
+
+decode :: [Word8] -> LT.Text
+decode = decodeUtf8With lenientDecode . LBS.pack
 
 getString :: Get [Word8]
 getString = do
@@ -363,15 +243,15 @@ parseEncodedMethod hdr bs mprev = do
   let methIdx = maybe methIdxDiff (+ methIdxDiff) mprev
   accessFlags <- getULEB128
   codeOffset <- getULEB128
-  codeItem <- subGet' bs codeOffset Nothing (Just <$> parseCodeItem hdr)
+  codeItem <- subGet' bs codeOffset Nothing (Just <$> parseCodeItem hdr bs)
   return $ EncodedMethod
            { methId = methIdx
            , methAccessFlags = accessFlags
            , methCode = codeItem
            }
 
-parseCodeItem :: DexHeader -> Get CodeItem
-parseCodeItem hdr = do
+parseCodeItem :: DexHeader -> BS.ByteString -> Get CodeItem
+parseCodeItem hdr bs = do
   regCount <- getWord16le
   inCount <- getWord16le
   outCount <- getWord16le
@@ -388,12 +268,13 @@ parseCodeItem hdr = do
     else
       do handlerSize <- getULEB128
          replicateM (fromIntegral handlerSize) (parseEncodedCatchHandler r)
+  debugInfo <- subGet bs debugInfoOff parseDebugInfo
   -- insns <- either fail return $ decodeInstructions insnWords
   return $ CodeItem
            { codeRegs = regCount
            , codeInSize = inCount
            , codeOutSize = outCount
-           , codeDebugOff = debugInfoOff
+           , codeDebugInfo = debugInfo
            , codeInsnOff = insnOff
            , codeInsns = insns
            , codeTryItems = tryItems
@@ -418,6 +299,42 @@ parseEncodedCatchHandler startRem = do
 parseEncodedTypeAddrPair :: Get (TypeId, Word32)
 parseEncodedTypeAddrPair =
   (,) <$> (fromIntegral `fmap` getULEB128) <*> getULEB128
+
+parseDebugInfo :: Get DebugInfo
+parseDebugInfo = do
+  lineStart <- getULEB128
+  paramCount <- getULEB128
+  paramNames <- replicateM (fromIntegral paramCount) getULEB128p1
+  byteCodes <- parseByteCodes
+  return $ DebugInfo lineStart paramNames byteCodes
+
+parseByteCodes :: Get [DebugInstruction]
+parseByteCodes = do
+  bc <- getWord8
+  insn <- parseByteCode bc
+  case insn of
+    EndSequence -> return []
+    _ -> (insn :) <$> parseByteCodes
+
+parseByteCode :: Word8 -> Get DebugInstruction
+parseByteCode bc
+  | fromIntegral bc < fromEnum DBG_FIRST_SPECIAL =
+    case toEnum (fromIntegral bc) of
+      DBG_END_SEQUENCE -> return EndSequence
+      DBG_ADVANCE_PC -> AdvancePC <$> getULEB128
+      DBG_ADVANCE_LINE -> AdvanceLine <$> getSLEB128
+      DBG_START_LOCAL ->
+        StartLocal <$> getULEB128 <*> getULEB128p1 <*> getULEB128p1
+      DBG_START_LOCAL_EXTENDED ->
+        StartLocalExt <$> getULEB128 <*> getULEB128p1
+                      <*> getULEB128p1 <*> getULEB128p1
+      DBG_END_LOCAL -> EndLocal <$> getULEB128
+      DBG_RESTART_LOCAL -> RestartLocal <$> getULEB128
+      DBG_SET_PROLOGUE_END -> return SetPrologueEnd
+      DBG_SET_EPILOGUE_BEGIN -> return SetEpilogueBegin
+      DBG_SET_FILE -> SetFile <$> getULEB128p1
+      _ -> fail "internal: invalid debug byte code"
+  | otherwise = return (SpecialAdjust bc)
 
 parseClassDefs :: DexHeader -> BS.ByteString -> Word32
                -> Get (Map TypeId Class)
@@ -474,30 +391,4 @@ parseData _ size = getByteString (fromIntegral size)
 
 parseLinkInfo :: BS.ByteString -> Word32 -> Get BS.ByteString
 parseLinkInfo _ size = getByteString (fromIntegral size)
-
-{- Utility functions -}
-
-str :: String -> BS.ByteString
-str = BS.pack . map toEnum . map fromEnum
-
-getStr :: DexFile -> StringId -> StringDataItem
-getStr dex i = Map.findWithDefault (error msg) i (dexStrings dex)
-  where msg = "Unknown string ID " ++ show i
-
-getTypeName :: DexFile -> TypeId -> StringDataItem
-getTypeName dex i =
-  getStr dex (Map.findWithDefault (error msg) i (dexTypeNames dex))
-    where msg = "Uknown type ID " ++ show i
-
-getField :: DexFile -> FieldId -> Field
-getField dex i = Map.findWithDefault (error msg) i (dexFields dex)
-  where msg = "Unknown field ID " ++ show i
-
-getMethod :: DexFile -> MethodId -> Method
-getMethod dex i = Map.findWithDefault (error msg) i (dexMethods dex)
-  where msg = "Unknown method ID " ++ show i
-
-getProto :: DexFile -> ProtoId -> Proto
-getProto dex i = Map.findWithDefault (error msg) i (dexProtos dex)
-  where msg = "Unknown prototype ID " ++ show i
 

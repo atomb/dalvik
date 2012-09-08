@@ -19,16 +19,11 @@ Library
     Extensions:
 
     Build-Depends:  array,
-                    blaze-builder,
-                    blaze-textual,
+                    base >= 3,
                     bytestring,
                     cereal,
-                    containers
-
-    if flag(splitBase)
-        Build-Depends: base >= 3 && < 5
-    else
-        Build-Depends: base < 3
+                    containers,
+                    text
 
     Hs-Source-Dirs: .
     Exposed-Modules: Dalvik.AccessFlags
@@ -36,11 +31,12 @@ Library
                      Dalvik.LEB128
                      Dalvik.Parser
                      Dalvik.Printer
+                     Dalvik.Types
     Other-Modules:
     GHC-Options: -Wall -O2
     GHC-Prof-Options: -prof -fprof-auto
 
 Executable Dexdumper
-    main-is: Dexdumper.hs
-    ghc-options: -Wall
-    build-depends: utf8-string
+    Main-Is: Dexdumper.hs
+    GHC-Options: -Wall -optl-Wl,-dead_strip
+    Build-Depends: utf8-string

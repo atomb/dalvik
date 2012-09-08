@@ -1,22 +1,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Dalvik.Printer where
 
-import Blaze.ByteString.Builder
-import Blaze.ByteString.Builder.Char.Utf8 as B
-import Blaze.Text.Int
 import Data.Bits
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BS
 import Data.Int
 import Data.List
 import Data.Monoid
+import Data.Serialize.Get ( runGet )
+import Data.Serialize.Put ( runPut, putWord32le, putWord64le )
+import Data.Serialize.IEEE754 ( getFloat32le, getFloat64le )
 import Data.String
+import Data.Text.Encoding.Error
+import qualified Data.Text.Lazy as LT
+import Data.Text.Lazy.Builder as B
+import Data.Text.Lazy.Builder.Int
+import Data.Text.Lazy.Builder.RealFloat
+import Data.Text.Lazy.Encoding
 import Data.Word
+import Unsafe.Coerce
 
 import Dalvik.Instruction
-import Dalvik.Parser
-
-instance IsString Builder where
-  fromString = B.fromString
+import Dalvik.Types
 
 type Str = Builder
 
@@ -131,10 +135,10 @@ lstr :: Int -> String -> String
 lstr n s = s ++ replicate (n - length s) ' '
 
 pSDI :: StringDataItem -> Str
-pSDI (SDI _ octs) = fromByteString . BS.pack $ octs
+pSDI (SDI _ t) =  fromLazyText t
 
 pSDI' :: StringDataItem -> Str
-pSDI' (SDI _ octs) = squotes . fromByteString . BS.pack $ octs
+pSDI' (SDI _ t) = squotes . fromLazyText $ t
 
 squotes :: (Monoid s, IsString s) => s -> s
 squotes s = mconcat [ "'",  s,  "'" ]
@@ -192,7 +196,7 @@ regStr (R8 r) = iregStr r
 regStr (R16 r) = iregStr r
 
 iregStr :: (Show a, Integral a) => a -> Str
-iregStr r = "v" +++ integral r
+iregStr r = "v" +++ decimal r
 
 moveTypeString :: (IsString s) => MoveType -> s
 moveTypeString MNormal = "move"
@@ -247,24 +251,45 @@ binopStr Shr = "shr"
 binopStr UShr = "ushr"
 binopStr RSub = "rsub"
 
+int32ToFloat :: Int32 -> Float
+int32ToFloat =
+  either (const (0/0)) id .
+  runGet getFloat32le .
+  runPut .
+  putWord32le .
+  fromIntegral
+
+int64ToDouble :: Int64 -> Double
+int64ToDouble =
+  either (const (0/0)) id .
+  runGet getFloat64le .
+  runPut .
+  putWord64le .
+  fromIntegral
+
+ffmt :: RealFloat a => a -> Builder
+ffmt = formatRealFloat Fixed (Just 6)
+
 constString :: DexFile -> ConstArg -> Str
 constString _ (Const4 i) =
-  "#int " +++ integral i +++ intComm (fromIntegral i :: Word8)
+  "#int " +++ decimal i +++ intComm (fromIntegral i :: Word8)
 constString _ (Const16 i) =
-  "#int " +++ integral i +++ intComm (fromIntegral i :: Int16)
+  "#int " +++ decimal i +++ intComm (fromIntegral i :: Int16)
 constString _ (ConstHigh16 i) =
-  "#int " +++ integral i +++
+  "#int " +++ decimal i +++
   intComm (fromIntegral (i `shiftR` 16) :: Int16)
 constString _ (ConstWide16 i) =
-  "#int " +++ integral i +++ intComm (fromIntegral i :: Int16)
+  "#int " +++ decimal i +++ intComm (fromIntegral i :: Int16)
 constString _ (Const32 w) =
-  "#int " +++ integral w +++ intComm w
+  -- dexdump always prints these as floats, even though they might not be.
+  "#float " +++ ffmt (int32ToFloat w) +++ intComm32 w
 constString _ (ConstWide32 i) =
-  "#int " +++ integral i +++ intComm (fromIntegral i :: Int32)
+  "#int " +++ decimal i +++ intComm (fromIntegral i :: Int32)
 constString _ (ConstWide w) =
-  "#long " +++ integral w +++ intComm64 (fromIntegral w)
+  -- dexdump always prints these as doubles, even though they might not be.
+  "#double " +++ ffmt (int64ToDouble w) +++ intComm64 (fromIntegral w)
 constString _ (ConstWideHigh16 i) =
-  "#long " +++ integral i +++
+  "#long " +++ decimal i +++
   intComm (fromIntegral (i `shiftR` 48) :: Int16)
 constString dex (ConstString sid) =
   "\"" +++ pSDI (getStr dex sid) +++ "\"" +++ stringComm sid
@@ -306,10 +331,10 @@ methodStr dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
         classStr = pSDI . tailSDI . getTypeName dex $ methClassId meth
         nameStr = pSDI . getStr dex $ methNameId meth
         descStr = protoDesc dex . getProto dex $ methProtoId meth
-        tailSDI (SDI l bs) = SDI (l - 2) (map slashToDot . init . tail $ bs)
-        slashToDot 36 = 46
-        slashToDot 47 = 46
-        slashToDot n = n
+        tailSDI (SDI l t) = SDI (l - 2) (LT.map slashToDot . LT.init . LT.tail $ t)
+        slashToDot '$' = '.'
+        slashToDot '/' = '.'
+        slashToDot c = c
 
 methodStr' :: DexFile -> MethodId -> Str
 methodStr' dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
@@ -362,10 +387,10 @@ insnString dex _ (LoadConst d c@(ConstStringJumbo _)) =
   constStr dex "const-string/jumbo" d c
 insnString dex _ (LoadConst d c@(ConstClass _)) =
   constStr dex "const-class" d c
-insnString _ _ (MonitorEnter r) = "monitor-enter v" +++ integral r
-insnString _ _ (MonitorExit r) = "monitor-exit v" +++ integral r
+insnString _ _ (MonitorEnter r) = "monitor-enter v" +++ decimal r
+insnString _ _ (MonitorExit r) = "monitor-exit v" +++ decimal r
 insnString dex _ (CheckCast r tid) =
-  mconcat ["check-cast v", integral r,  ", ", pSDI $ getTypeName dex tid] +++
+  mconcat ["check-cast v", decimal r,  ", ", pSDI $ getTypeName dex tid] +++
   typeComm tid
 insnString dex _ (InstanceOf dst ref tid) =
   mkInsn "instance-of"
@@ -392,7 +417,7 @@ insnString _ a (FillArrayData dst off) =
   mkInsn "fill-array-data"
          [ iregStr dst, h8 (fromIntegral (a + fromIntegral off)) ] +++
   offComm' off
-insnString _ _ (Throw r) = "throw v" +++ integral r
+insnString _ _ (Throw r) = "throw v" +++ decimal r
 insnString _ a (Goto off) =
   "goto " +++ h4 (fromIntegral (a + fromIntegral off)) +++ offComm off
 insnString _ a (Goto16 off) =
@@ -464,18 +489,18 @@ insnString _ _ (FBinopAssign op True dst src) =
   mkInsn' (binopStr op +++ "-double/2addr") [ dst, src ]
 insnString _ _ (BinopLit16 op dst src i) =
   mkInsn (binopStr op +++ "-int/lit16")
-         [iregStr dst, iregStr src, "#int " +++ integral i] +++
+         [iregStr dst, iregStr src, "#int " +++ decimal i] +++
   intComm16 (fromIntegral i)
 insnString _ _ (BinopLit8 op dst src i) =
   mkInsn (binopStr op +++ "-int/lit8")
-         [iregStr dst, iregStr src, "#int " +++ integral i] +++
+         [iregStr dst, iregStr src, "#int " +++ decimal i] +++
   intComm8 (fromIntegral i)
 insnString _ _ i@(PackedSwitchData _ _) =
-  "packed-switch-data (" +++ integral size +++ " units)"
+  "packed-switch-data (" +++ decimal size +++ " units)"
     where size = insnUnitCount i
 insnString _ _ i@(SparseSwitchData _ _) =
-  "sparse-switch-data (" +++ integral size +++ " units)"
+  "sparse-switch-data (" +++ decimal size +++ " units)"
     where size = insnUnitCount i
 insnString _ _ i@(ArrayData _ _ _) =
-  "array-data (" +++ integral size +++ " units)"
+  "array-data (" +++ decimal size +++ " units)"
     where size = insnUnitCount i

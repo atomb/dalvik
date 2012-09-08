@@ -8,17 +8,7 @@ import Data.Int
 import Data.Word
 import Text.Printf
 
-type FieldId = Word16
-type MethodId = Word16
-type StringId = Word32
-type StringIdJumbo = Word32
-type TypeId = Word16
-
-type Word4 = Word8
-
-type Reg4 = Word4
-type Reg8 = Word8
-type Reg16 = Word16
+import Dalvik.Types
 
 data Reg
   = R4 Reg4
