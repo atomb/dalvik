@@ -284,7 +284,9 @@ constString _ (Const32 w) =
   -- dexdump always prints these as floats, even though they might not be.
   "#float " +++ ffmt (int32ToFloat w) +++ intComm32 w
 constString _ (ConstWide32 i) =
-  "#int " +++ decimal i +++ intComm (fromIntegral i :: Int32)
+  -- dexdump always prints these as floats, even though they might not be.
+  "#float " +++ ffmt (int32ToFloat (fromIntegral i)) +++
+  intComm32 (fromIntegral i)
 constString _ (ConstWide w) =
   -- dexdump always prints these as doubles, even though they might not be.
   "#double " +++ ffmt (int64ToDouble w) +++ intComm64 (fromIntegral w)
