@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Dalvik.Parser where
 
 import Control.Applicative
@@ -42,16 +43,18 @@ loadDex bs = do
   ddata    <- doSection (dexDataOff h) (dexDataSize h) parseData bs
   linkInfo <- doSection (dexLinkOff h) (dexLinkSize h) parseLinkInfo bs
   -}
-  return $ DexFile
-           { dexHeader = h
-           , dexMap = itemMap
-           , dexStrings = strings
-           , dexTypeNames = types
-           , dexProtos = protos
-           , dexFields = fields
-           , dexMethods = methods
-           , dexClasses = classes
-           }
+  let dex = DexFile
+            { dexHeader = h
+            , dexMap = itemMap
+            , dexStrings = strings
+            , dexTypeNames = types
+            , dexProtos = protos
+            , dexFields = fields
+            , dexMethods = methods
+            , dexClasses = classes
+            , dexThisId = findString dex "this"
+            }
+  return dex
 
 currDexOffset :: DexHeader -> Get Word32
 currDexOffset hdr =

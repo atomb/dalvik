@@ -149,6 +149,7 @@ data DexFile =
   , dexFields       :: Map FieldId Field
   , dexMethods      :: Map MethodId Method
   , dexClasses      :: Map TypeId Class
+  , dexThisId       :: StringId
   } deriving (Show)
 
 data DebugByteCode
@@ -234,3 +235,14 @@ getMethod dex i = Map.findWithDefault (error msg) i (dexMethods dex)
 getProto :: DexFile -> ProtoId -> Proto
 getProto dex i = Map.findWithDefault (error msg) i (dexProtos dex)
   where msg = "Unknown prototype ID " ++ show i
+
+getClass :: DexFile -> TypeId -> Class
+getClass dex i = Map.findWithDefault (error msg) i (dexClasses dex)
+  where msg = "Unknown type ID " ++ show i
+
+findString :: DexFile -> LT.Text -> StringId
+findString dex t =
+  case filter isThis (Map.toList (dexStrings dex)) of
+    [(sid, _)] -> sid
+    _ -> error "Can't find StringId of 'this'"
+  where isThis (_, SDI _ t') = t == t'
