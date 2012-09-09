@@ -205,28 +205,28 @@ codeLines dex flags mid code =
   , fld "      positions" ""
   , mconcatLines positionText
   , fld "      locals" ""
-  , mconcatLines localsText +++ (if null localsText then "" else "\n")
+  , localsText +++ (if Map.null (dbgLocals debugState) then "" else "\n")
   ]
     where tries = codeTryItems code
           insnUnits = codeInsns code
           insns = decodeInstructions insnUnits
-          lastAddr = either
-                     (const 0xFFFF)
-                     (\is -> (sum . map (fromIntegral . insnUnitCount) $ is) - 1)
-                     insns
           addr = codeInsnOff code
           nameAddr = addr - 16 -- Ick!
           --dinfo = codeDebugInfo code
-          meth = getMethod dex mid
-          paramTypes = protoParams . getProto dex . methProtoId $ meth
-          debugState = executeInsns code flags paramTypes lastAddr (-1) -- TODO!
+          debugState = executeInsns dex code flags mid
           positionText = map ppos . reverse . dbgPositions $ debugState
-          localsText = map plocals . Map.toAscList . dbgLocals $
-                       debugState
+          localsText = plocals . dbgLocals $ debugState
           ppos (PositionInfo a l) =
             "        0x" +++ h4 (fromIntegral a) +++ " line=" +++ decimal l
-          plocals (r, ls) = mconcatLines $ map (plocal r) (sort ls)
-          plocal r (LocalInfo s e nid tid sid) =
+          plocals m = (mconcatLines .
+                       map plocal .
+                       sortBy cmpLocal .
+                       filter hasName)
+                      [ (r, l) | (r, ls) <- Map.toList m, l <- ls ]
+          cmpLocal (_, LocalInfo _ e _ _ _) (_, LocalInfo _ e' _ _ _) =
+            compare e e'
+          hasName (_, LocalInfo _ _ nid _ _) = nid /= (-1)
+          plocal (r, LocalInfo s e nid tid sid) =
             "        0x" +++ h4 (fromIntegral s) +++
             " - 0x" +++ h4 (fromIntegral e) +++ " reg=" +++
             decimal r +++ " " +++ nstr nid +++ " " +++ tstr tid +++
@@ -236,10 +236,7 @@ codeLines dex flags mid code =
                         (B.fromString $ "error parsing instructions: " ++ msg))
                      (mconcatLines . insnLines dex addr 0 insnUnits)
                      insns
-          nstr (-1) = "this"
           nstr nid = fromLazyText . sdiText . getStr dex . fromIntegral $ nid
-          tstr (-1) = "<none>"
-          tstr 65535 = fromLazyText . sdiText . getTypeName dex . methClassId $ meth
           tstr tid = fromLazyText . sdiText . getTypeName dex . fromIntegral $ tid
 
 insnLines :: DexFile -> Word32 -> Word32 -> [Word16] -> [Instruction]

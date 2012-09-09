@@ -1,17 +1,14 @@
 {-# LANGUAGE ParallelListComp #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Dalvik.DebugInfo where
 
 import Data.Int
 import Data.List
-import Data.Map (Map, alter, empty, findWithDefault, insertWith)
 import qualified Data.Map as Map
 import Data.Word
 
 import Dalvik.AccessFlags
-import Dalvik.Instruction
 import Dalvik.Types
-
-import Debug.Trace
 
 initialDebugState :: DebugInfo -> Int32 -> DebugState
 initialDebugState info srcFile =
@@ -21,7 +18,7 @@ initialDebugState info srcFile =
   , dbgSourceFile    = srcFile
   , dbgPrologueEnd   = False
   , dbgEpilogueBegin = False
-  , dbgLocals        = empty
+  , dbgLocals        = Map.empty
   , dbgPositions     = []
   }
 
@@ -31,13 +28,16 @@ dbgLineRange = 15
 
 startLocal :: DebugState -> Word32 -> Int32 -> Int32 -> Int32
            -> DebugState
-startLocal s r nid tid sid =
-  s { dbgLocals =
-        insertWith (++) r [LocalInfo a 0xFFFFFFFF nid tid sid] (dbgLocals s) }
-    where a = dbgAddr s
+startLocal s r nid tid sid = s { dbgLocals = Map.alter start r (dbgLocals s) }
+    where start (Just (LocalInfo a' 0xFFFFFFFF nid' tid' sid' : ls))  =
+            Just $ l' : (LocalInfo a' a nid' tid' sid') : ls
+          start (Just ls) = Just $ l' : ls
+          start Nothing = Just [l']
+          a = dbgAddr s
+          l' = LocalInfo a 0xFFFFFFFF nid tid sid
 
 endLocal :: DebugState -> Word32 -> DebugState
-endLocal s r = s { dbgLocals = alter fixupEnd r (dbgLocals s) }
+endLocal s r = s { dbgLocals = Map.alter fixupEnd r (dbgLocals s) }
   where fixupEnd (Just (LocalInfo a _ nid tid sid : ls)) =
           Just $ LocalInfo a (dbgAddr s) nid tid sid : ls
         fixupEnd _ =
@@ -46,15 +46,13 @@ endLocal s r = s { dbgLocals = alter fixupEnd r (dbgLocals s) }
 
 restartLocal :: DebugState -> Word32 -> DebugState
 restartLocal s r =
-  case findWithDefault [] r (dbgLocals s) of
+  case Map.findWithDefault [] r (dbgLocals s) of
     (LocalInfo _ _ nid tid sid : _) -> startLocal s r nid tid sid
     [] -> --trace ("restartLocal: " ++ show r) $
           startLocal s r (-1) (-1) (-1)
 
 executeInsn :: DebugState -> DebugInstruction -> DebugState
 executeInsn s i =
-  --trace (show s) $
-  --trace (show i) $
   case i of
     EndSequence -> s
     AdvancePC off -> s { dbgAddr = dbgAddr s + off }
@@ -74,29 +72,44 @@ executeInsn s i =
                           }
       where adjOpcode = fromIntegral $
                         fromIntegral op - fromEnum DBG_FIRST_SPECIAL
-            line' = dbgLine s + dbgLineBase + (adjOpcode `mod` dbgLineRange) -- - 4
+            line' = dbgLine s + dbgLineBase + (adjOpcode `mod` dbgLineRange)
             addr' = dbgAddr s + (adjOpcode `div` dbgLineRange)
             p = PositionInfo addr' line'
 
-executeInsns :: CodeItem -> AccessFlags -> [TypeId] -> Word32 -> Int32
+executeInsns :: DexFile
+             -> CodeItem
+             -> AccessFlags
+             -> MethodId
              -> DebugState
-executeInsns code flags paramTypes lastAddr srcFile = -- trace (show info) $
+executeInsns dex code flags mid =
+  --trace (show (getStr dex (methNameId meth)) ++ ": " ++ show pnames) $
   finishLocals lastAddr $
-  foldl' executeInsn (initialDebugState info srcFile) is
-    where is = [ StartLocal r nid (fromIntegral tid)
-                   | r <- [paramStartReg..]
-                   | tid <- ptypes
-                   | nid <- pnames ] ++ dbgByteCodes info
+  foldl' executeInsn (initialDebugState info srcFile) (is reg0 params)
+    where is _ [] = dbgByteCodes info
+          is r ((n, t) : rest) =
+            StartLocal r n (fromIntegral t) : is (r + pregs t) rest
           info = codeDebugInfo code
           hasThis = not $ hasAccessFlag ACC_STATIC flags
-          paramStartReg = fromIntegral (codeRegs code) - fromIntegral (length pnames)
-          pnames = (if hasThis then (thisId :) else id) (dbgParamNames info)
-          ptypes = (if hasThis then (thisTid :) else id) paramTypes
-          thisTid = (-1) -- TODO: what is the TypeId of 'this'
-          thisId = (-1) -- TODO: what is the StringId of 'this'
+          reg0 = fromIntegral (codeRegs code) - sum (map pregs ptypes)
+          pnames = (if hasThis then (thisNid :) else id)
+                   (dbgParamNames info)
+          ptypes = (if hasThis then (thisType :) else id) paramTypes
+          params = zip pnames ptypes
+          pregs tid =
+            case getTypeName dex tid of
+              (SDI _ "J") -> 2
+              (SDI _ "D") -> 2
+              _ -> 1
+          thisNid = fromIntegral . dexThisId $ dex
+          lastAddr = fromIntegral $ length (codeInsns code) - 1
+          paramTypes = protoParams . getProto dex . methProtoId $ meth
+          thisType = methClassId meth
+          meth = getMethod dex mid
+          srcFile = fromIntegral . classSourceNameId . getClass dex $ thisType
 
 finishLocals :: Word32 -> DebugState -> DebugState
-finishLocals lastAddr s = s { dbgLocals = Map.map updLocal (dbgLocals s) }
-  where updLocal (LocalInfo s 0xFFFFFFFF nid tid sid : ls) =
-          LocalInfo s (lastAddr + 1) nid tid sid : ls
-        updLocal ls = ls
+finishLocals lastAddr s = s { dbgLocals = Map.map updLocals (dbgLocals s) }
+  where updLocal (LocalInfo a 0xFFFFFFFF nid tid sid) =
+          LocalInfo a (lastAddr + 1) nid tid sid
+        updLocal l = l
+        updLocals ls = map updLocal ls
