@@ -2,7 +2,6 @@
 module Dalvik.Printer where
 
 import Data.Bits
-import qualified Data.ByteString.Lazy as BS
 import Data.Int
 import Data.List
 import Data.Monoid
@@ -10,14 +9,12 @@ import Data.Serialize.Get ( runGet )
 import Data.Serialize.Put ( runPut, putWord32le, putWord64le )
 import Data.Serialize.IEEE754 ( getFloat32le, getFloat64le )
 import Data.String
-import Data.Text.Encoding.Error
 import qualified Data.Text.Lazy as LT
 import Data.Text.Lazy.Builder as B
 import Data.Text.Lazy.Builder.Int
 import Data.Text.Lazy.Builder.RealFloat
-import Data.Text.Lazy.Encoding
 import Data.Word
-import Unsafe.Coerce
+--import Unsafe.Coerce
 
 import Dalvik.Instruction
 import Dalvik.Types

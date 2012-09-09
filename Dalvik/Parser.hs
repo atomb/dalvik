@@ -6,7 +6,6 @@ import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map as Map
-import Data.Int
 import Data.Map (Map)
 import Data.Serialize.Get
 import Data.Text.Encoding.Error
@@ -14,9 +13,6 @@ import qualified Data.Text.Lazy as LT
 import Data.Text.Lazy.Encoding
 import Data.Word
 
-import Dalvik.AccessFlags
-import Dalvik.DebugInfo
-import Dalvik.Instruction
 import Dalvik.LEB128
 import Dalvik.Types
 

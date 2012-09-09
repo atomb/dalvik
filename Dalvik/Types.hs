@@ -1,6 +1,5 @@
 module Dalvik.Types where
 
-import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import Data.Int
