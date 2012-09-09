@@ -600,8 +600,8 @@ combine16 w1 w2 = (fromIntegral w1 `shiftL` 16) .|. fromIntegral w2
 
 combine16' :: (Integral a, Bits b) => a -> a -> a -> a -> b
 combine16' w1 w2 w3 w4 =
-  (fromIntegral w1 `shiftL` 32) .|.
-  (fromIntegral w2 `shiftL` 24) .|.
+  (fromIntegral w1 `shiftL` 48) .|.
+  (fromIntegral w2 `shiftL` 32) .|.
   (fromIntegral w3 `shiftL` 16) .|.
   fromIntegral w4
 
