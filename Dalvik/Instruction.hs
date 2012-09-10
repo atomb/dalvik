@@ -1,4 +1,20 @@
-module Dalvik.Instruction where
+module Dalvik.Instruction
+  ( decodeInstructions
+  , insnUnitCount
+  , Reg(..)
+  , ConstArg(..)
+  , MoveType(..)
+  , Move1Type(..)
+  , AccessType(..)
+  , AccessOp(..)
+  , InvokeKind(..)
+  , CType(..)
+  , CmpOp(..)
+  , IfOp(..)
+  , Unop(..)
+  , Binop(..)
+  , Instruction(..)
+  ) where
 
 import Control.Applicative()
 import Control.Monad
@@ -227,10 +243,6 @@ splitWord16' w = (fst4 b1, snd4 b1, fst4 b2, snd4 b2)
   where (b1, b2) = splitWord16 w
 
 type DecodeError = String -- TODO: replace with structured type
-type IParseResult = Either DecodeError Instruction
-
-invalidOpcode :: Word8 -> DecodeError
-invalidOpcode op = "Invalid opcode: " ++ show op
 
 prematureEnd :: Word8 -> Word16 -> DecodeError
 prematureEnd op w =
@@ -607,10 +619,6 @@ combine16' w1 w2 w3 w4 =
 
 signExt4 :: Word8 -> Int8
 signExt4 w = w' .|. (if w' .&. 0x8 /= 0 then 0xF0 else 0)
-  where w' = fromIntegral w
-
-signExt8 :: Word16 -> Int16
-signExt8 w = w' .|. (if w' .&. 0x80 /= 0 then 0xFF00 else 0)
   where w' = fromIntegral w
 
 signExt16 :: Word32 -> Int32

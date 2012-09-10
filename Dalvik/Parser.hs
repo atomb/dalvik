@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Dalvik.Parser where
+module Dalvik.Parser
+  ( loadDexIO
+  , loadDex
+  ) where
 
 import Control.Applicative
 import Control.Monad
@@ -385,9 +388,11 @@ parseClassData hdr bs = do
   virtualMethods <- parseEncodedMethods hdr bs virtualMethodCount Nothing
   return (staticFields, instanceFields, directMethods, virtualMethods)
 
+{-
 parseData :: BS.ByteString -> Word32 -> Get BS.ByteString
 parseData _ size = getByteString (fromIntegral size)
 
 parseLinkInfo :: BS.ByteString -> Word32 -> Get BS.ByteString
 parseLinkInfo _ size = getByteString (fromIntegral size)
+-}
 

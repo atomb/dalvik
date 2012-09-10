@@ -1,5 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Dalvik.AccessFlags where
+module Dalvik.AccessFlags
+  ( AccessFlag(..)
+  , AccessFlags
+  , AccessType(..)
+  , flagCode
+  , codeFlag
+  , flagString
+  , flagsString
+  , hasAccessFlag
+  ) where
 
 import Data.Bits
 import Data.List
@@ -55,10 +64,12 @@ flagCode ACC_DECLARED_SYNCHRONIZED = 0x20000
 
 data AccessType = AClass | AField | AMethod deriving Eq
 
+{-
 tyString :: (IsString s) => AccessType -> s
 tyString AClass = "class"
 tyString AField = "field"
 tyString AMethod = "method"
+-}
 
 codeFlag :: AccessType -> Word32 -> AccessFlag
 codeFlag _       0x00001 = ACC_PUBLIC

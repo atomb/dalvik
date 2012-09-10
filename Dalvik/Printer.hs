@@ -1,5 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Dalvik.Printer where
+module Dalvik.Printer
+  ( insnString
+  , (+++)
+  , h2
+  , h4
+  , h5
+  , h6
+  , h8
+  , pSDI
+  , pSDI'
+  , lstr
+  , squotes
+  , protoDesc
+  , methodStr
+  ) where
 
 import Data.Bits
 import Data.Int
@@ -158,9 +172,6 @@ fieldComm fid = " // field@" +++ h4 fid
 
 stringComm :: StringId -> Str
 stringComm sid = " // string@" +++ h4 (fromIntegral sid)
-
-intComm4 :: Int32 -> Str
-intComm4 i = " // #" +++ hexDigit (fromIntegral i :: Word8)
 
 intComm8 :: Int32 -> Str
 intComm8 i = " // #" +++ h2 (fromIntegral i)

@@ -1,6 +1,6 @@
 {-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Dalvik.DebugInfo where
+module Dalvik.DebugInfo (executeInsns) where
 
 import Data.Int
 import Data.List

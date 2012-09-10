@@ -1,4 +1,8 @@
-module Dalvik.LEB128 where
+module Dalvik.LEB128
+  ( getSLEB128
+  , getULEB128
+  , getULEB128p1
+  ) where
 
 import Control.Applicative
 import Data.Bits
