@@ -3,11 +3,6 @@
 module Dalvik.Printer
   ( insnString
   , (+++)
-  , h2
-  , h4
-  , h5
-  , h6
-  , h8
   , pSDI
   , pSDI'
   , lstr
@@ -18,7 +13,6 @@ module Dalvik.Printer
 
 import Data.Bits
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
 import Data.Int
 import Data.List
 import Data.Monoid
@@ -48,11 +42,11 @@ instance IsString Builder where
 lstr :: Int -> String -> String
 lstr n s = s ++ replicate (n - length s) ' '
 
-pSDI :: StringDataItem -> Str
-pSDI (SDI _ t) =  fromByteString t
+pSDI :: BS.ByteString -> Str
+pSDI = fromByteString
 
-pSDI' :: StringDataItem -> Str
-pSDI' (SDI _ t) = squotes . fromByteString $ t
+pSDI' :: BS.ByteString -> Str
+pSDI' = squotes . fromByteString
 
 squotes :: Str -> Str
 squotes s = mconcat [ "'",  s, "'" ]
@@ -68,41 +62,41 @@ mkInsn' name args = mkInsn name (map iregStr args)
 {-# INLINE mkInsn' #-}
 
 methodComm :: MethodId -> Str
-methodComm mid = " // method@" +++ h4 mid
+methodComm mid = " // method@" +++ fixedHex 4 mid
 
 typeComm :: TypeId -> Str
-typeComm tid = " // type@" +++ h4 tid
+typeComm tid = " // type@" +++ fixedHex 4 tid
 
 fieldComm :: FieldId -> Str
-fieldComm fid = " // field@" +++ h4 fid
+fieldComm fid = " // field@" +++ fixedHex 4 fid
 
 stringComm :: StringId -> Str
-stringComm sid = " // string@" +++ h4 (fromIntegral sid)
+stringComm sid = " // string@" +++ fixedHex 4 sid
 
-intComm8 :: Int32 -> Str
-intComm8 i = " // #" +++ h2 (fromIntegral i)
+intComm8 :: Word32 -> Str
+intComm8 i = " // #" +++ fixedHex 2 i
 
-intComm16 :: Int32 -> Str
-intComm16 i = " // #" +++ h4 (fromIntegral i)
+intComm16 :: Word32 -> Str
+intComm16 i = " // #" +++ fixedHex 4 i
 
-intComm32 :: Int32 -> Str
-intComm32 i = " // #" +++ h8 (fromIntegral i)
+intComm32 :: Word32 -> Str
+intComm32 i = " // #" +++ fixedHex 8 i
 
-intComm64 :: Int64 -> Str
-intComm64 i = " // #" +++ h16 (fromIntegral i)
+intComm64 :: Word64 -> Str
+intComm64 i = " // #" +++ fixedHex 16 i
 
 intComm :: (Integral a) => a -> Str
 intComm i = " // #" +++ hexadecimal i
 
-offComm :: (Integral a) => a -> Str
-offComm i = " // " +++ sign +++ h4 i'
-  where (i', sign) | i < 0 = (-(fromIntegral i), "-")
-                   | otherwise = (fromIntegral i, "+")
+offComm :: (Integral a, Bits a) => a -> Str
+offComm i = " // " +++ sign +++ fixedHex 4 i'
+  where (i', sign) | i < 0 = (-(fromIntegral i :: Word16), "-")
+                   | otherwise = (fromIntegral i :: Word16, "+")
 
-offComm' :: (Integral a) => a -> Str
-offComm' i = " // " +++ sign +++ h8 (fromIntegral i')
-  where (i', sign) | i < 0 = (-i, "-")
-                   | otherwise = (i, "+")
+offComm' :: (Integral a, Bits a) => a -> Str
+offComm' i = " // " +++ sign +++ fixedHex 8 i'
+  where (i', sign) | i < 0 = (-(fromIntegral i :: Word32), "-")
+                   | otherwise = (fromIntegral i :: Word32, "+")
 
 regStr :: Reg -> Str
 regStr (R4 r) = iregStr r
@@ -201,7 +195,7 @@ constString _ (ConstWide16 i) =
   "#int " +++ integral i +++ intComm (fromIntegral i :: Word16)
 constString _ (Const32 w) =
   -- dexdump always prints these as floats, even though they might not be.
-  "#float " +++ ffmt (int32ToFloat w) +++ intComm32 w
+  "#float " +++ ffmt (int32ToFloat w) +++ intComm32 (fromIntegral w :: Word32)
 constString _ (ConstWide32 i) =
   -- dexdump always prints these as floats, even though they might not be.
   "#float " +++ ffmt (int32ToFloat (fromIntegral i)) +++
@@ -252,7 +246,7 @@ methodStr dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
         classStr = pSDI . tailSDI . getTypeName dex $ methClassId meth
         nameStr = pSDI . getStr dex $ methNameId meth
         descStr = protoDesc dex . getProto dex $ methProtoId meth
-        tailSDI (SDI l t) = SDI (l - 2) (BS.map slashToDot . BS.init . BS.tail $ t)
+        tailSDI = BS.map slashToDot . BS.init . BS.tail
         slashToDot 36 = 46
         slashToDot 47 = 46
         slashToDot c = c
@@ -336,22 +330,25 @@ insnString dex _ (FilledNewArrayRange tid rs) =
   typeComm tid
 insnString _ a (FillArrayData dst off) =
   mkInsn "fill-array-data"
-         [ iregStr dst, h8 (fromIntegral (a + fromIntegral off)) ] +++
+         [ iregStr dst, fixedHex 8 (a + fromIntegral off) ] +++
   offComm' off
 insnString _ _ (Throw r) = "throw v" +++ integral r
 insnString _ a (Goto off) =
-  "goto " +++ h4 (fromIntegral (a + fromIntegral off)) +++ offComm off
+  "goto " +++ fixedHex 4 (fromIntegral (a + fromIntegral off) :: Word16) +++
+  offComm (fromIntegral off :: Int16)
 insnString _ a (Goto16 off) =
-  "goto/16 " +++ h4 (fromIntegral (a + fromIntegral off)) +++ offComm off
+  "goto/16 " +++ fixedHex 4 (fromIntegral (a + fromIntegral off) :: Word16) +++
+  offComm off
 insnString _ a (Goto32 off) =
-  "goto/32 " +++ h8 (fromIntegral (a + fromIntegral off)) +++ offComm off
+  "goto/32 " +++ fixedHex 8 (fromIntegral (a + fromIntegral off) :: Word32) +++
+  offComm off
 insnString _ a (PackedSwitch r off) =
   mkInsn "packed-switch"
-         [ iregStr r, h8 (fromIntegral (a + fromIntegral off)) ] +++
+         [ iregStr r, fixedHex 8 (a + fromIntegral off) ] +++
   offComm' off
 insnString _ a (SparseSwitch r off) =
   mkInsn "sparse-switch"
-         [ iregStr r, h8 (fromIntegral (a + fromIntegral off)) ] +++
+         [ iregStr r, fixedHex 8 (a + fromIntegral off) ] +++
   offComm' off
 insnString _ _ (Cmp CLFloat dst r1 r2) =
   mkInsn' "cmpl-float" [dst, r1, r2]
@@ -365,11 +362,11 @@ insnString _ _ (Cmp CLong dst r1 r2) =
   mkInsn' "cmp-long" [dst, r1, r2]
 insnString _ a (If op r1 r2 off) =
   mkInsn ("if-" +++ ifOpStr op)
-         [ iregStr r1, iregStr r2, h4 (fromIntegral (a + fromIntegral off)) ]
+         [ iregStr r1, iregStr r2, fixedHex 4 (a + fromIntegral off) ]
   +++ offComm off
 insnString _ a (IfZero op r off) =
   mkInsn ("if-" +++ ifOpStr op +++ "z")
-         [ iregStr r, h4 (fromIntegral (a + fromIntegral off)) ]
+         [ iregStr r, fixedHex 4 (a + fromIntegral off) ]
   +++ offComm off
 insnString _ _ (ArrayOp op val arr idx) =
   mkInsn' ("a" +++ accessOpStr op) [ val, arr, idx ]

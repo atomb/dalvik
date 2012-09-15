@@ -148,19 +148,16 @@ subGet' :: Integral c => BS.ByteString -> c -> a -> Get a -> Get a
 subGet' _ 0 def _ = return def
 subGet' bs off _ p = subGet bs off p
 
-parseStrings :: BS.ByteString -> Word32 -> Get (Map Word32 StringDataItem)
+parseStrings :: BS.ByteString -> Word32 -> Get (Map Word32 BS.ByteString)
 parseStrings bs size = do
   offs <- replicateM (fromIntegral size) getWord32le
   strs <- mapM (\off -> subGet bs off parseStringDataItem) offs
   return . Map.fromList . zip [0..] $ strs
 
-parseStringDataItem :: Get StringDataItem
-parseStringDataItem = SDI <$> getULEB128 <*> (BS.pack <$> getString)
-
-getString :: Get [Word8]
-getString = do
-  b <- getWord8
-  if b == 0 then return [] else (b:) <$> getString
+parseStringDataItem :: Get BS.ByteString
+parseStringDataItem = getULEB128 >>=  const (BS.pack <$> go)
+  where go = do c <- getWord8
+                if c == 0 then return [] else (c:) <$> go
 
 parseTypes :: BS.ByteString -> Word32 -> Get (Map TypeId StringId)
 parseTypes _ size =

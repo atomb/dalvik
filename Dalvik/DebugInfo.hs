@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Dalvik.DebugInfo (executeInsns) where
 
+import qualified Data.ByteString.Char8 as CBS
 import Data.Int
 import Data.List
 import qualified Data.Map as Map
@@ -96,7 +97,7 @@ executeInsns dex code flags mid =
           ptypes = (if hasThis then (thisType :) else id) paramTypes
           params = zip pnames ptypes
           pregs tid =
-            case rawString (getTypeName dex tid) of
+            case CBS.unpack (getTypeName dex tid) of
               "J" -> 2
               "D" -> 2
               _ -> 1

@@ -23,6 +23,10 @@ hexadecimal i
     msg = "Dalvik.HexPrint.hexadecimal: applied to negative number"
 {-# INLINE hexadecimal #-}
 
+{-# SPECIALIZE fixedHex :: Int -> Word8 -> Builder #-}
+{-# SPECIALIZE fixedHex :: Int -> Word16 -> Builder #-}
+{-# SPECIALIZE fixedHex :: Int -> Word32 -> Builder #-}
+{-# SPECIALIZE fixedHex :: Int -> Word64 -> Builder #-}
 fixedHex :: (Integral a, Bits a) => Int -> a -> Builder
 fixedHex digits i = fromWrite $ go digits i
   where
@@ -33,24 +37,3 @@ fixedHex digits i = fromWrite $ go digits i
                where mask = 0xF `shiftL` shiftAmt
                      shiftAmt = (d - 1) * 4
 {-# INLINE fixedHex #-}
-
-h2 :: Word8 -> Builder
-h2 = fixedHex 2
-{-# INLINE h2 #-}
-
-h4 :: Word16 -> Builder
-h4 = fixedHex 4
-{-# INLINE h4 #-}
-
-h5, h6, h8 :: Word32 -> Builder
-h5 = fixedHex 5
-h6 = fixedHex 6
-h8 = fixedHex 8
-{-# INLINE h5 #-}
-{-# INLINE h6 #-}
-{-# INLINE h8 #-}
-
-h16 :: Word64 -> Builder
-h16 = fixedHex 16
-{-# INLINE h16 #-}
-

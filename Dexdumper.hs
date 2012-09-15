@@ -17,6 +17,7 @@ import System.Environment
 
 import Dalvik.AccessFlags
 import Dalvik.DebugInfo
+import Dalvik.HexPrint
 import Dalvik.Instruction
 import Dalvik.Parser
 import Dalvik.Printer
@@ -43,9 +44,6 @@ escape (c : s) = c : escape s
 escapebs :: CBS.ByteString -> CBS.ByteString
 escapebs = CBS.pack . escape . CBS.unpack
 
-h4' :: Word32 -> Builder
-h4' = h4 . fromIntegral
-
 mconcatLines :: [Builder] -> Builder
 mconcatLines = mconcat . intersperse "\n"
 
@@ -62,7 +60,7 @@ hdrLines f hdr =
   , "DEX file header:"
   , fld "magic" . squotes . B.fromByteString . escapebs .
         CBS.append (dexMagic hdr) $ dexVersion hdr
-  , fld "checksum" . h8 $ dexChecksum hdr
+  , fld "checksum" . fixedHex 8 $ dexChecksum hdr
   , fld "signature" . sig $ dexSHA1 hdr
   , fldn "file_size" $ dexFileLen hdr
   , fldn "header_size" $ dexHdrLen hdr
@@ -85,25 +83,26 @@ hdrLines f hdr =
                         , "..."
                         , mconcat (drop 18 s')
                         ]
-          where s' = map h2 s
+          where s' = map (fixedHex 2) s
 
 fld :: String -> Builder -> Builder
 fld n v = mconcat [ CB.fromString (lstr 20 n), ": " , v ]
 
 fldx :: String -> Word32 -> Builder
-fldx n v = fld n $ mconcat [ integral v, " (0x", h6 v, ")" ]
+fldx n v = fld n $ mconcat [ integral v, " (0x", fixedHex 6 v, ")" ]
 
 fldx4 :: String -> Word32 -> Builder
 fldx4 n v =
   fld n $
-  mconcat [ integral v, " (0x", h4' v, ")" ]
+  mconcat [ integral v, " (0x", fixedHex 4 v, ")" ]
 
 fldn :: (Integral a, Show a) => String -> a -> Builder
 fldn n v = fld n (integral v)
 
 fldxs :: String -> Word32 -> Builder -> Builder
 fldxs n v s =
-  fld n $ mconcat [ "0x", if v >= 0x10000 then h5 v else h4' v, " (", s, ")" ]
+  fld n $ mconcat [ "0x", fixedHex cs v, " (", s, ")" ]
+    where cs = if v >= 0x10000 then 5 else 4
 
 fldns :: String -> Word32 -> Builder -> Builder
 fldns n v s = fld n $ mconcat [ integral v, " (", s, ")" ]
@@ -195,8 +194,8 @@ codeLines dex flags mid code =
   , fldn "      outs" $ codeOutSize code
   , fld "      insns size" $
     integral (length insnUnits) +++ " 16-bit code units"
-  , h6 nameAddr +++ ":                                        |[" +++
-    h6 nameAddr +++ "] " +++ methodStr dex mid
+  , fixedHex 6 nameAddr +++ ":                                        |[" +++
+    fixedHex 6 nameAddr +++ "] " +++ methodStr dex mid
   , insnText
   , mconcatLines $
     (fld "      catches" $
@@ -216,7 +215,8 @@ codeLines dex flags mid code =
           positionText = map ppos . reverse . dbgPositions $ debugState
           localsText = plocals . dbgLocals $ debugState
           ppos (PositionInfo a l) =
-            "        0x" +++ h4 (fromIntegral a) +++ " line=" +++ integral l
+            "        0x" +++ fixedHex 4 a +++
+            " line=" +++ integral l
           plocals m = (mconcatLines .
                        map plocal .
                        sortBy cmpLocal .
@@ -226,8 +226,8 @@ codeLines dex flags mid code =
             compare e e'
           hasName (_, LocalInfo _ _ nid _ _) = nid /= (-1)
           plocal (r, LocalInfo s e nid tid sid) =
-            "        0x" +++ h4 (fromIntegral s) +++
-            " - 0x" +++ h4 (fromIntegral e) +++ " reg=" +++
+            "        0x" +++ fixedHex 4 s +++
+            " - 0x" +++ fixedHex 4 e +++ " reg=" +++
             integral r +++ " " +++ nstr nid +++ " " +++ tstr tid +++
             " " +++ (if sid == -1 then "" else nstr sid)
           insnText = either
@@ -235,8 +235,8 @@ codeLines dex flags mid code =
                         (CB.fromString $ "error parsing instructions: " ++ msg))
                      (mconcatLines . insnLines dex addr 0 insnUnits)
                      insns
-          nstr nid = fromByteString . sdiText . getStr dex . fromIntegral $ nid
-          tstr tid = fromByteString . sdiText . getTypeName dex . fromIntegral $ tid
+          nstr nid = fromByteString . getStr dex . fromIntegral $ nid
+          tstr tid = fromByteString . getTypeName dex . fromIntegral $ tid
 
 insnLines :: DexFile -> Word32 -> Word32 -> [Word16] -> [Instruction]
           -> [Builder]
@@ -246,7 +246,7 @@ insnLines _ _ _ [] is = error $ "Ran out of code units (" ++
 insnLines _ _ _ ws [] = error $ "Ran out of instructions (" ++
                       show (length ws) ++ " code units left)"
 insnLines dex addr off ws (i:is) =
-  mconcat [ h6 addr, ": ", unitStr, "|", h4' off, ": ", istr ] :
+  mconcat [ fixedHex 6 addr, ": ", unitStr, "|", fixedHex 4 off, ": ", istr ] :
   insnLines dex (addr + (l'*2)) (off + l') ws' is
     where (iws, ws') = splitAt l ws
           istrs = map showCodeUnit $ iws
@@ -255,17 +255,17 @@ insnLines dex addr off ws (i:is) =
           l = insnUnitCount i
           l' = fromIntegral l
           unitStr = mconcat . intersperse " " $ istrs'
-          showCodeUnit w = h2 (fromIntegral (w .&. 0x00FF)) +++
-                           h2 (fromIntegral ((w  .&. 0xFF00) `shiftR` 8))
+          showCodeUnit w = fixedHex 2 (w .&. 0x00FF) +++
+                           fixedHex 2 ((w  .&. 0xFF00) `shiftR` 8)
           istr = insnString dex off i
 
 tryLines :: DexFile -> CodeItem -> TryItem -> Builder
 tryLines dex code try =
   mconcatLines
   [ mconcat [ "        0x"
-            , h4' (tryStartAddr try)
+            , fixedHex 4 (tryStartAddr try)
             ,  " - 0x"
-            , h4' end
+            , fixedHex 4 end
             ]
   , mconcatLines $ handlerLines ++ anyLine
   ]
@@ -277,13 +277,13 @@ tryLines dex code try =
           handlerLines = [ mconcat [ "          "
                                    , tyStr
                                    , " -> 0x"
-                                   , h4' addr
+                                   , fixedHex 4 addr
                                    ] |
                            (ty, addr) <- handlers
                          , let tyStr = pSDI (getTypeName dex ty)
                          ]
           anyLine = map
-                    (\addr -> "          <any> -> 0x" +++ h4' addr)
+                    (\addr -> "          <any> -> 0x" +++ fixedHex 4 addr)
                     (mapMaybe chAllAddr catches)
 
 main :: IO ()

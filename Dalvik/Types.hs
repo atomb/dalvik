@@ -57,9 +57,6 @@ data MapItem
     , itemOff  :: Word32
     } deriving (Show)
 
-data StringDataItem = SDI { sdiLen :: Word32, sdiText ::  BS.ByteString }
-  deriving (Show)
-
 data Field
   = Field {
       fieldClassId :: TypeId
@@ -141,7 +138,7 @@ data DexFile =
   DexFile
   { dexHeader       :: DexHeader
   , dexMap          :: Map Word32 MapItem
-  , dexStrings      :: Map StringId StringDataItem
+  , dexStrings      :: Map StringId BS.ByteString
   , dexTypeNames    :: Map TypeId StringId
   , dexProtos       :: Map ProtoId Proto
   , dexFields       :: Map FieldId Field
@@ -213,11 +210,11 @@ data LocalInfo
 
 {- Utility functions -}
 
-getStr :: DexFile -> StringId -> StringDataItem
+getStr :: DexFile -> StringId -> BS.ByteString
 getStr dex i = Map.findWithDefault (error msg) i (dexStrings dex)
   where msg = "Unknown string ID " ++ show i
 
-getTypeName :: DexFile -> TypeId -> StringDataItem
+getTypeName :: DexFile -> TypeId -> BS.ByteString
 getTypeName dex i =
   getStr dex (Map.findWithDefault (error msg) i (dexTypeNames dex))
     where msg = "Uknown type ID " ++ show i
@@ -243,9 +240,4 @@ findString dex t =
   case filter isThis (Map.toList (dexStrings dex)) of
     [(sid, _)] -> sid
     _ -> error "Can't find StringId of 'this'"
-  where isThis (_, SDI _ t') = t == t'
-
-rawString :: StringDataItem -> String
-rawString = map toChar . BS.unpack . sdiText
-  where toChar :: Word8 -> Char
-        toChar = toEnum . fromEnum
+  where isThis (_, t') = t == t'
