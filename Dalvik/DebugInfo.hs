@@ -42,15 +42,13 @@ endLocal s r = s { dbgLocals = Map.alter fixupEnd r (dbgLocals s) }
   where fixupEnd (Just (LocalInfo a _ nid tid sid : ls)) =
           Just $ LocalInfo a (dbgAddr s) nid tid sid : ls
         fixupEnd _ =
-          --trace ("endLocal: " ++ show r ++ " " ++ " " ++ show s) $
           Just [LocalInfo 0 (dbgAddr s) (-1) (-1) (-1)]
 
 restartLocal :: DebugState -> Word32 -> DebugState
 restartLocal s r =
   case Map.findWithDefault [] r (dbgLocals s) of
     (LocalInfo _ _ nid tid sid : _) -> startLocal s r nid tid sid
-    [] -> --trace ("restartLocal: " ++ show r) $
-          startLocal s r (-1) (-1) (-1)
+    [] -> startLocal s r (-1) (-1) (-1)
 
 executeInsn :: DebugState -> DebugInstruction -> DebugState
 executeInsn s i =
@@ -83,7 +81,6 @@ executeInsns :: DexFile
              -> MethodId
              -> DebugState
 executeInsns dex code flags mid =
-  --trace (show (getStr dex (methNameId meth)) ++ ": " ++ show pnames) $
   finishLocals lastAddr $
   foldl' executeInsn (initialDebugState info srcFile) (is reg0 params)
     where is _ [] = dbgByteCodes info

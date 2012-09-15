@@ -584,18 +584,18 @@ iparseTable = array (0x00, 0xFF) $
           lbinopa = binopa IBinopAssign True
           fbinopa = binopa FBinopAssign False
           dbinopa = binopa FBinopAssign True
-          binopl16 op = IF22s $ \r1 r2 i ->
-                        BinopLit16 op r1 r2 (fromIntegral i)
-          binopl8 op = IF22b $ \r1 r2 i ->
-                       BinopLit8 op r1 r2 (fromIntegral i)
+          binopl16 op = IF22s $ \r1 r2 ->
+                        BinopLit16 op r1 r2 . fromIntegral
+          binopl8 op = IF22b $ \r1 r2 ->
+                       BinopLit8 op r1 r2 . fromIntegral
           cmp op = IF23x $ Cmp op
-          ifop op = IF22t $ \r1 r2 o -> If op r1 r2 (fromIntegral o)
-          ifzop op = IF21t $ \r o -> IfZero op r (fromIntegral o)
+          ifop op = IF22t $ \r1 r2 -> If op r1 r2 . fromIntegral
+          ifzop op = IF21t $ \r -> IfZero op r . fromIntegral
           arrop op = IF23x $ ArrayOp op
           instop op = IF22c $ InstanceFieldOp op
           statop op = IF21c $ StaticFieldOp op
-          invoke ty = IF35c $ \f args -> Invoke ty False f (map fromIntegral args)
-          invokeRange ty = IF3rc $ \f rs -> Invoke ty True f rs
+          invoke ty = IF35c $ \f -> Invoke ty False f . map fromIntegral
+          invokeRange ty = IF3rc $ Invoke ty True
           ret ty = IF11x $ Return ty . R8
           move1 ty = IF11x $ Move1 ty . R8
 
