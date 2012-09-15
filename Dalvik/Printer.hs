@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Dalvik.Printer
   ( insnString
   , (+++)
@@ -16,6 +17,7 @@ module Dalvik.Printer
   ) where
 
 import Data.Bits
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Int
 import Data.List
@@ -47,10 +49,10 @@ lstr :: Int -> String -> String
 lstr n s = s ++ replicate (n - length s) ' '
 
 pSDI :: StringDataItem -> Str
-pSDI (SDI _ t) =  fromLazyByteString t
+pSDI (SDI _ t) =  fromByteString t
 
 pSDI' :: StringDataItem -> Str
-pSDI' (SDI _ t) = squotes . fromLazyByteString $ t
+pSDI' (SDI _ t) = squotes . fromByteString $ t
 
 squotes :: Str -> Str
 squotes s = mconcat [ "'",  s, "'" ]
@@ -250,7 +252,7 @@ methodStr dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
         classStr = pSDI . tailSDI . getTypeName dex $ methClassId meth
         nameStr = pSDI . getStr dex $ methNameId meth
         descStr = protoDesc dex . getProto dex $ methProtoId meth
-        tailSDI (SDI l t) = SDI (l - 2) (LBS.map slashToDot . LBS.init . LBS.tail $ t)
+        tailSDI (SDI l t) = SDI (l - 2) (BS.map slashToDot . BS.init . BS.tail $ t)
         slashToDot 36 = 46
         slashToDot 47 = 46
         slashToDot c = c

@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Main where
+module Main ( main ) where
 
 import Data.Bits
-import qualified Data.ByteString.Lazy.Char8 as CBS
+import qualified Data.ByteString.Char8 as CBS
+import qualified Data.ByteString.Lazy.Char8 as LBS
 import qualified Data.Map as Map
 import Data.List
 import Data.Maybe
@@ -28,8 +29,9 @@ processFile f = do
   case edex of
     Left err -> putStrLn err
     Right dex -> do
-      CBS.putStrLn . toLazyByteString . hdrLines f . dexHeader $ dex
-      CBS.putStrLn . toLazyByteString . clsLines . dexClasses $ dex
+      LBS.putStrLn . toLazyByteString . hdrLines f . dexHeader $ dex
+      LBS.putStrLn . toLazyByteString . clsLines . dexClasses $ dex
+      LBS.putStrLn ""
         where clsLines = mconcatLines . map (classLines dex) . Map.toList
 
 escape :: String -> String
@@ -54,11 +56,11 @@ hdrLines f hdr =
     [ "Opened "
     , squotes (CB.fromString f)
     , ", DEX version "
-    , squotes . B.fromLazyByteString . escapebs . CBS.take 3 $
+    , squotes . B.fromByteString . escapebs . CBS.take 3 $
       dexVersion hdr
     ]
   , "DEX file header:"
-  , fld "magic" . squotes . B.fromLazyByteString . escapebs .
+  , fld "magic" . squotes . B.fromByteString . escapebs .
         CBS.append (dexMagic hdr) $ dexVersion hdr
   , fld "checksum" . h8 $ dexChecksum hdr
   , fld "signature" . sig $ dexSHA1 hdr
@@ -233,8 +235,8 @@ codeLines dex flags mid code =
                         (CB.fromString $ "error parsing instructions: " ++ msg))
                      (mconcatLines . insnLines dex addr 0 insnUnits)
                      insns
-          nstr nid = fromLazyByteString . sdiText . getStr dex . fromIntegral $ nid
-          tstr tid = fromLazyByteString . sdiText . getTypeName dex . fromIntegral $ tid
+          nstr nid = fromByteString . sdiText . getStr dex . fromIntegral $ nid
+          tstr tid = fromByteString . sdiText . getTypeName dex . fromIntegral $ tid
 
 insnLines :: DexFile -> Word32 -> Word32 -> [Word16] -> [Instruction]
           -> [Builder]

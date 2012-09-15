@@ -7,8 +7,7 @@ module Dalvik.Parser
 import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Lazy.Char8()
+import qualified Data.ByteString.Char8()
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Serialize.Get
@@ -67,9 +66,9 @@ doSection off size p bs =
 
 parseDexHeader :: Get DexHeader
 parseDexHeader = do
-  magic <- getLazyByteString 4
+  magic <- getByteString 4
   unless (magic == "dex\n") $ fail "Invalid magic string"
-  version <- getLazyByteString 4
+  version <- getByteString 4
   unless (version == "035\0") $ fail "Unsupported version"
   checksum <- getWord32le
   sha1 <- BS.unpack <$> getBytes 20
@@ -156,7 +155,7 @@ parseStrings bs size = do
   return . Map.fromList . zip [0..] $ strs
 
 parseStringDataItem :: Get StringDataItem
-parseStringDataItem = SDI <$> getULEB128 <*> (LBS.pack <$> getString)
+parseStringDataItem = SDI <$> getULEB128 <*> (BS.pack <$> getString)
 
 getString :: Get [Word8]
 getString = do

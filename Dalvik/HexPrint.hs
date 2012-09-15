@@ -1,11 +1,10 @@
 {-# LANGUAGE ParallelListComp #-}
-{-# LANGUAGE MagicHash #-}
 
 module Dalvik.HexPrint where
 
+import Blaze.ByteString.Builder
 import Data.Bits
 import Data.Monoid
-import Blaze.ByteString.Builder
 import Data.Word
 
 hexDigit :: Integral a => a -> Word8
