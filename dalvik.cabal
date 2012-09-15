@@ -20,12 +20,12 @@ Library
 
     Build-Depends:  array,
                     base >= 3,
+                    blaze-builder,
+                    blaze-textual,
                     bytestring,
                     cereal,
                     containers,
-                    floatshow,
-                    text,
-                    text-format
+                    floatshow
 
     Hs-Source-Dirs: .
     Exposed-Modules: Dalvik.AccessFlags

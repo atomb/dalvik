@@ -1,18 +1,17 @@
 module Dalvik.Types where
 
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map as Map
 import Data.Int
 import Data.Map (Map)
-import qualified Data.Text.Lazy as LT
 import Data.Word
 
 import Dalvik.AccessFlags
 
 data DexHeader =
   DexHeader
-  { dexMagic        :: BS.ByteString
-  , dexVersion      :: BS.ByteString
+  { dexMagic        :: LBS.ByteString
+  , dexVersion      :: LBS.ByteString
   , dexChecksum     :: Word32
   , dexSHA1         :: [Word8]
   , dexFileLen      :: Word32
@@ -58,7 +57,7 @@ data MapItem
     , itemOff  :: Word32
     } deriving (Show)
 
-data StringDataItem = SDI { sdiLen :: Word32, sdiText ::  LT.Text }
+data StringDataItem = SDI { sdiLen :: Word32, sdiText ::  LBS.ByteString }
   deriving (Show)
 
 data Field
@@ -239,9 +238,14 @@ getClass :: DexFile -> TypeId -> Class
 getClass dex i = Map.findWithDefault (error msg) i (dexClasses dex)
   where msg = "Unknown type ID " ++ show i
 
-findString :: DexFile -> LT.Text -> StringId
+findString :: DexFile -> LBS.ByteString -> StringId
 findString dex t =
   case filter isThis (Map.toList (dexStrings dex)) of
     [(sid, _)] -> sid
     _ -> error "Can't find StringId of 'this'"
   where isThis (_, SDI _ t') = t == t'
+
+rawString :: StringDataItem -> String
+rawString = map toChar . LBS.unpack . sdiText
+  where toChar :: Word8 -> Char
+        toChar = toEnum . fromEnum

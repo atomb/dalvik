@@ -96,9 +96,9 @@ executeInsns dex code flags mid =
           ptypes = (if hasThis then (thisType :) else id) paramTypes
           params = zip pnames ptypes
           pregs tid =
-            case getTypeName dex tid of
-              (SDI _ "J") -> 2
-              (SDI _ "D") -> 2
+            case rawString (getTypeName dex tid) of
+              "J" -> 2
+              "D" -> 2
               _ -> 1
           thisNid = fromIntegral . dexThisId $ dex
           lastAddr = fromIntegral $ length (codeInsns code) - 1

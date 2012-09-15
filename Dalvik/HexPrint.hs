@@ -5,27 +5,31 @@ module Dalvik.HexPrint where
 
 import Data.Bits
 import Data.Monoid
-import Data.Text.Lazy.Builder
+import Blaze.ByteString.Builder
 import Data.Word
-import GHC.Base
 
--- | Unsafe conversion for decimal digits.
-i2d :: Int -> Char
-i2d (I# i#) = C# (chr# (ord# '0'# +# i#))
-{-# INLINE i2d #-}
-
-hexDigit :: Integral a => a -> Builder
+hexDigit :: Integral a => a -> Word8
 hexDigit n
-    | n <= 9    = singleton $! i2d (fromIntegral n)
-    | otherwise = singleton $! toEnum (fromIntegral n + 87)
+    | n <= 9    = fromIntegral n + 48
+    | otherwise = fromIntegral n + 87
 {-# INLINE hexDigit #-}
 
+hexadecimal :: Integral a => a -> Builder
+hexadecimal i
+    | i < 0     = error msg
+    | otherwise = fromWrite $ go i
+  where
+    go n | n < 16    = writeWord8 $! hexDigit n
+         | otherwise = go (n `quot` 16) `mappend` (writeWord8 $! hexDigit (n `rem` 16))
+    msg = "Dalvik.HexPrint.hexadecimal: applied to negative number"
+{-# INLINE hexadecimal #-}
+
 fixedHex :: (Integral a, Bits a) => Int -> a -> Builder
-fixedHex digits i = go digits i
+fixedHex digits i = fromWrite $ go digits i
   where
     go 0 _ = mempty
-    go 1 n = hexDigit (n .&. 0xF)
-    go d n = hexDigit ((n .&. mask) `shiftR` shiftAmt) `mappend`
+    go 1 n = writeWord8 $! hexDigit (n .&. 0xF)
+    go d n = (writeWord8 $! hexDigit ((n .&. mask) `shiftR` shiftAmt)) `mappend`
              go (d - 1) n
                where mask = 0xF `shiftL` shiftAmt
                      shiftAmt = (d - 1) * 4

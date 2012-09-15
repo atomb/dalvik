@@ -8,12 +8,10 @@ import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8()
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Serialize.Get
-import Data.Text.Encoding.Error
-import qualified Data.Text.Lazy as LT
-import Data.Text.Lazy.Encoding
 import Data.Word
 
 import Dalvik.LEB128
@@ -69,10 +67,10 @@ doSection off size p bs =
 
 parseDexHeader :: Get DexHeader
 parseDexHeader = do
-  magic <- getBytes 4
-  unless (magic == str "dex\n") $ fail "Invalid magic string"
-  version <- getBytes 4
-  unless (version == str "035\0") $ fail "Unsupported version"
+  magic <- getLazyByteString 4
+  unless (magic == "dex\n") $ fail "Invalid magic string"
+  version <- getLazyByteString 4
+  unless (version == "035\0") $ fail "Unsupported version"
   checksum <- getWord32le
   sha1 <- BS.unpack <$> getBytes 20
   fileLen <- getWord32le
@@ -123,8 +121,6 @@ parseDexHeader = do
            , dexDataSize = dataSize
            , dexDataOff = dataOff
            }
-  where str :: String -> BS.ByteString
-        str = BS.pack . map toEnum . map fromEnum
 
 {- Section parsing -}
 
@@ -160,10 +156,7 @@ parseStrings bs size = do
   return . Map.fromList . zip [0..] $ strs
 
 parseStringDataItem :: Get StringDataItem
-parseStringDataItem = SDI <$> getULEB128 <*> (decode <$> getString)
-
-decode :: [Word8] -> LT.Text
-decode = decodeUtf8With lenientDecode . LBS.pack
+parseStringDataItem = SDI <$> getULEB128 <*> (LBS.pack <$> getString)
 
 getString :: Get [Word8]
 getString = do
