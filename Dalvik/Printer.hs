@@ -26,10 +26,10 @@ import Data.String
 import qualified Data.Text.Lazy as LT
 import Data.Text.Lazy.Builder as B
 import Data.Text.Lazy.Builder.Int
-import Data.Text.Lazy.Builder.RealFloat
 import Data.Word
---import Unsafe.Coerce
+import Text.FShow.RealFloat
 
+import Dalvik.HexPrint
 import Dalvik.Instruction
 import Dalvik.Types
 
@@ -37,110 +37,7 @@ type Str = Builder
 
 (+++) :: (Monoid s) => s -> s -> s
 (+++) = mappend
-
-hexDigit :: (Integral a, IsString s) => a -> s
-hexDigit 0x0 = "0"
-hexDigit 0x1 = "1"
-hexDigit 0x2 = "2"
-hexDigit 0x3 = "3"
-hexDigit 0x4 = "4"
-hexDigit 0x5 = "5"
-hexDigit 0x6 = "6"
-hexDigit 0x7 = "7"
-hexDigit 0x8 = "8"
-hexDigit 0x9 = "9"
-hexDigit 0xA = "a"
-hexDigit 0xB = "b"
-hexDigit 0xC = "c"
-hexDigit 0xD = "d"
-hexDigit 0xE = "e"
-hexDigit 0xF = "f"
-hexDigit _   = "?"
-
-h2 :: (IsString s, Monoid s) => Word8 -> s
-h2 w =
-  mconcat [ hexDigit ((w .&. 0xF0) `shiftR` 4), hexDigit (w .&.  0x0F) ]
-
-h3 :: (IsString s, Monoid s) => Word16 -> s
-h3 w =
-  mconcat [ hexDigit ((w .&. 0x0F00) `shiftR` 8)
-          , hexDigit ((w .&. 0x00F0) `shiftR` 4)
-          , hexDigit  (w .&. 0x000F) ]
-
-h4 :: (IsString s, Monoid s) => Word16 -> s
-h4 w =
-  mconcat [ hexDigit ((w .&. 0xF000) `shiftR` 12)
-          , hexDigit ((w .&. 0x0F00) `shiftR` 8)
-          , hexDigit ((w .&. 0x00F0) `shiftR` 4)
-          , hexDigit  (w .&. 0x000F) ]
-
-h5 :: (IsString s, Monoid s) => Word32 -> s
-h5 w =
-  mconcat [ hexDigit ((w .&. 0x000F0000) `shiftR` 16)
-          , hexDigit ((w .&. 0x0000F000) `shiftR` 12)
-          , hexDigit ((w .&. 0x00000F00) `shiftR` 8)
-          , hexDigit ((w .&. 0x000000F0) `shiftR` 4)
-          , hexDigit  (w .&. 0x0000000F) ]
-
-h6 :: (IsString s, Monoid s) => Word32 -> s
-h6 w =
-  mconcat [ hexDigit ((w .&. 0x00F00000) `shiftR` 20)
-          , hexDigit ((w .&. 0x000F0000) `shiftR` 16)
-          , hexDigit ((w .&. 0x0000F000) `shiftR` 12)
-          , hexDigit ((w .&. 0x00000F00) `shiftR` 8)
-          , hexDigit ((w .&. 0x000000F0) `shiftR` 4)
-          , hexDigit  (w .&. 0x0000000F) ]
-
-h7 :: (IsString s, Monoid s) => Word32 -> s
-h7 w =
-  mconcat [ hexDigit ((w .&. 0x0F000000) `shiftR` 24)
-          , hexDigit ((w .&. 0x00F00000) `shiftR` 20)
-          , hexDigit ((w .&. 0x000F0000) `shiftR` 16)
-          , hexDigit ((w .&. 0x0000F000) `shiftR` 12)
-          , hexDigit ((w .&. 0x00000F00) `shiftR` 8)
-          , hexDigit ((w .&. 0x000000F0) `shiftR` 4)
-          , hexDigit  (w .&. 0x0000000F) ]
-
-h8 :: (IsString s, Monoid s) => Word32 -> s
-h8 w =
-  mconcat [ hexDigit ((w .&. 0xF0000000) `shiftR` 28)
-          , hexDigit ((w .&. 0x0F000000) `shiftR` 24)
-          , hexDigit ((w .&. 0x00F00000) `shiftR` 20)
-          , hexDigit ((w .&. 0x000F0000) `shiftR` 16)
-          , hexDigit ((w .&. 0x0000F000) `shiftR` 12)
-          , hexDigit ((w .&. 0x00000F00) `shiftR` 8)
-          , hexDigit ((w .&. 0x000000F0) `shiftR` 4)
-          , hexDigit  (w .&. 0x0000000F) ]
-
-h16 :: (IsString s, Monoid s) => Word64 -> s
-h16 w =
-  mconcat [ hexDigit ((w .&. 0xF000000000000000) `shiftR` 60)
-          , hexDigit ((w .&. 0x0F00000000000000) `shiftR` 56)
-          , hexDigit ((w .&. 0x00F0000000000000) `shiftR` 52)
-          , hexDigit ((w .&. 0x000F000000000000) `shiftR` 48)
-          , hexDigit ((w .&. 0x0000F00000000000) `shiftR` 44)
-          , hexDigit ((w .&. 0x00000F0000000000) `shiftR` 40)
-          , hexDigit ((w .&. 0x000000F000000000) `shiftR` 36)
-          , hexDigit ((w .&. 0x0000000F00000000) `shiftR` 32)
-          , hexDigit ((w .&. 0x00000000F0000000) `shiftR` 28)
-          , hexDigit ((w .&. 0x000000000F000000) `shiftR` 24)
-          , hexDigit ((w .&. 0x0000000000F00000) `shiftR` 20)
-          , hexDigit ((w .&. 0x00000000000F0000) `shiftR` 16)
-          , hexDigit ((w .&. 0x000000000000F000) `shiftR` 12)
-          , hexDigit ((w .&. 0x0000000000000F00) `shiftR` 8)
-          , hexDigit ((w .&. 0x00000000000000F0) `shiftR` 4)
-          , hexDigit  (w .&. 0x000000000000000F) ]
-
-hfit :: (Integral a, Bits a, IsString s, Monoid s) => a -> s
-hfit a | a == a .&. 0x0000000f = hexDigit a
-       | a == a .&. 0x000000ff = h2 (fromIntegral a)
-       | a == a .&. 0x00000fff = h3 (fromIntegral a)
-       | a == a .&. 0x0000ffff = h4 (fromIntegral a)
-       | a == a .&. 0x000fffff = h5 (fromIntegral a)
-       | a == a .&. 0x00ffffff = h6 (fromIntegral a)
-       | a == a .&. 0x0fffffff = h7 (fromIntegral a)
-       | a == a .&. 0xffffffff = h8 (fromIntegral a)
-       | otherwise = h16 (fromIntegral a)
+{-# INLINE (+++) #-}
 
 lstr :: Int -> String -> String
 lstr n s = s ++ replicate (n - length s) ' '
@@ -153,13 +50,16 @@ pSDI' (SDI _ t) = squotes . fromLazyText $ t
 
 squotes :: (Monoid s, IsString s) => s -> s
 squotes s = mconcat [ "'",  s,  "'" ]
+{-# INLINE squotes #-}
 
 mkInsn :: (Monoid s, IsString s) => s -> [s] -> s
 mkInsn name args =
   mconcat [name, " ", mconcat $ intersperse ", " args]
+{-# INLINE mkInsn #-}
 
 mkInsn' :: (Show a, Integral a) => Str -> [a] -> Str
 mkInsn' name args = mkInsn name (map iregStr args)
+{-# INLINE mkInsn' #-}
 
 methodComm :: MethodId -> Str
 methodComm mid = " // method@" +++ h4 mid
@@ -185,8 +85,8 @@ intComm32 i = " // #" +++ h8 (fromIntegral i)
 intComm64 :: Int64 -> Str
 intComm64 i = " // #" +++ h16 (fromIntegral i)
 
-intComm :: (Integral a, Bits a, IsString s, Monoid s) => a -> s
-intComm i = " // #" +++ hfit i
+intComm :: (Integral a) => a -> Str
+intComm i = " // #" +++ hexadecimal i
 
 offComm :: (Integral a) => a -> Str
 offComm i = " // " +++ sign +++ h4 i'
@@ -275,19 +175,24 @@ int64ToDouble =
   putWord64le .
   fromIntegral
 
-ffmt :: RealFloat a => a -> Builder
-ffmt = formatRealFloat Fixed (Just 6)
+ffmt :: Float -> Builder
+ffmt f | isNaN f = "nan"
+       | otherwise = B.fromString $ fshowFFloat (Just 6) (FF f) ""
+
+dfmt :: Double -> Builder
+dfmt d | isNaN d = "nan"
+       | otherwise = B.fromString $ fshowFFloat (Just 6) (FD d) ""
 
 constString :: DexFile -> ConstArg -> Str
 constString _ (Const4 i) =
   "#int " +++ decimal i +++ intComm (fromIntegral i :: Word8)
 constString _ (Const16 i) =
-  "#int " +++ decimal i +++ intComm (fromIntegral i :: Int16)
+  "#int " +++ decimal i +++ intComm (fromIntegral i :: Word16)
 constString _ (ConstHigh16 i) =
   "#int " +++ decimal i +++
-  intComm (fromIntegral (i `shiftR` 16) :: Int16)
+  intComm (fromIntegral (i `shiftR` 16) :: Word16)
 constString _ (ConstWide16 i) =
-  "#int " +++ decimal i +++ intComm (fromIntegral i :: Int16)
+  "#int " +++ decimal i +++ intComm (fromIntegral i :: Word16)
 constString _ (Const32 w) =
   -- dexdump always prints these as floats, even though they might not be.
   "#float " +++ ffmt (int32ToFloat w) +++ intComm32 w
@@ -297,10 +202,10 @@ constString _ (ConstWide32 i) =
   intComm32 (fromIntegral i)
 constString _ (ConstWide w) =
   -- dexdump always prints these as doubles, even though they might not be.
-  "#double " +++ ffmt (int64ToDouble w) +++ intComm64 (fromIntegral w)
+  "#double " +++ dfmt (int64ToDouble w) +++ intComm64 (fromIntegral w)
 constString _ (ConstWideHigh16 i) =
   "#long " +++ decimal i +++
-  intComm (fromIntegral (i `shiftR` 48) :: Int16)
+  intComm (fromIntegral (i `shiftR` 48) :: Word16)
 constString dex (ConstString sid) =
   "\"" +++ pSDI (getStr dex sid) +++ "\"" +++ stringComm sid
 constString dex (ConstStringJumbo sid) =

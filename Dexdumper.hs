@@ -8,7 +8,6 @@ import qualified Data.Map as Map
 import Data.List
 import Data.Maybe
 import Data.Monoid
-import Data.String
 import Data.Text.Lazy.Builder as B
 import Data.Text.Lazy.Builder.Int
 import qualified Data.Text.Lazy.IO as TIO
@@ -31,10 +30,7 @@ processFile f = do
     Right dex -> do
       TIO.putStrLn . toLazyText . hdrLines f . dexHeader $ dex
       TIO.putStrLn . toLazyText . clsLines . dexClasses $ dex
-      --mapM_ (TIO.putStrLn . renderStr) (Map.toList (dexStrings dex))
         where clsLines = mconcatLines . map (classLines dex) . Map.toList
-              --renderStr (i, (SDI _ t)) =
-              --  toLazyText $ decimal i +++ " -> " +++ B.fromLazyText t
 
 escape :: String -> String
 escape [] = []
@@ -42,7 +38,7 @@ escape ('\0' : s) = '\\' : '0' : escape s
 escape ('\n' : s) = '\\' : 'n' : escape s
 escape (c : s) = c : escape s
 
-h4' :: (Monoid s, IsString s) => Word32 -> s
+h4' :: Word32 -> B.Builder
 h4' = h4 . fromIntegral
 
 mconcatLines :: [Builder] -> Builder
@@ -201,7 +197,6 @@ codeLines dex flags mid code =
     (fld "      catches" $
      if null tries then "(none)" else decimal (length tries)) :
     map (tryLines dex code) tries
-  --, fld "      debug info" (B.fromString . show $ dinfo)
   , fld "      positions" ""
   , mconcatLines positionText
   , fld "      locals" ""
@@ -212,7 +207,6 @@ codeLines dex flags mid code =
           insns = decodeInstructions insnUnits
           addr = codeInsnOff code
           nameAddr = addr - 16 -- Ick!
-          --dinfo = codeDebugInfo code
           debugState = executeInsns dex code flags mid
           positionText = map ppos . reverse . dbgPositions $ debugState
           localsText = plocals . dbgLocals $ debugState

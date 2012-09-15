@@ -23,10 +23,13 @@ Library
                     bytestring,
                     cereal,
                     containers,
-                    text
+                    floatshow,
+                    text,
+                    text-format
 
     Hs-Source-Dirs: .
     Exposed-Modules: Dalvik.AccessFlags
+                     Dalvik.HexPrint
                      Dalvik.Instruction
                      Dalvik.LEB128
                      Dalvik.Parser
@@ -34,9 +37,10 @@ Library
                      Dalvik.Types
     Other-Modules:
     GHC-Options: -Wall -O2
-    GHC-Prof-Options: -prof -fprof-auto
+    GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
 
 Executable Dexdumper
     Main-Is: Dexdumper.hs
-    GHC-Options: -Wall -optl-Wl,-dead_strip
+    GHC-Options: -Wall -O2 -optl-Wl,-dead_strip
+    GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
     Build-Depends: utf8-string
