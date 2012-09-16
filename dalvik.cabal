@@ -41,6 +41,5 @@ Library
 
 Executable Dexdumper
     Main-Is: Dexdumper.hs
-    GHC-Options: -Wall -O2 -optl-Wl,-dead_strip
+    GHC-Options: -Wall -O2
     GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
-    Build-Depends: utf8-string
