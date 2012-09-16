@@ -130,4 +130,4 @@ andTrue :: Word32 -> Word32 -> Bool
 andTrue w1 w2 = (w1 .&. w2) /= 0
 
 hasAccessFlag :: AccessFlag -> Word32 ->  Bool
-hasAccessFlag f w = andTrue (flagCode f) w
+hasAccessFlag f = andTrue (flagCode f)

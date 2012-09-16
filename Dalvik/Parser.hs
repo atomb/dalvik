@@ -54,7 +54,7 @@ loadDex bs = do
 
 currDexOffset :: DexHeader -> Get Word32
 currDexOffset hdr =
-  ((dexFileLen hdr) -) <$> (fromIntegral `fmap` remaining)
+  (dexFileLen hdr -) <$> (fromIntegral `fmap` remaining)
 
 doSection :: Word32 -> Word32 -> (BS.ByteString -> Word32 -> Get a)
           -> BS.ByteString
@@ -95,7 +95,7 @@ parseDexHeader = do
   offClassDefs <- getWord32le
   dataSize <- getWord32le
   dataOff <- getWord32le
-  return $ DexHeader
+  return DexHeader
            { dexMagic = magic
            , dexVersion = version
            , dexChecksum = checksum
@@ -179,7 +179,7 @@ parseProto bs = do
   retTyId <- getWord32le
   paramListOff <- getWord32le
   params <- subGet' bs paramListOff [] parseTypeList
-  return $ Proto
+  return Proto
            { protoShortDesc = tyDescId
            -- TODO: can the following lose information?
            , protoRet       = fromIntegral retTyId
@@ -206,7 +206,7 @@ parseEncodedField mprev = do
   fieldIdxDiff <- fromIntegral <$> getULEB128 -- TODO: data loss?
   let fieldIdx = maybe fieldIdxDiff (+ fieldIdxDiff) mprev
   accessFlags <- getULEB128
-  return $ EncodedField
+  return EncodedField
            { fieldId = fieldIdx
            , fieldAccessFlags = accessFlags
            }
@@ -235,7 +235,7 @@ parseEncodedMethod hdr bs mprev = do
   accessFlags <- getULEB128
   codeOffset <- getULEB128
   codeItem <- subGet' bs codeOffset Nothing (Just <$> parseCodeItem hdr bs)
-  return $ EncodedMethod
+  return EncodedMethod
            { methId = methIdx
            , methAccessFlags = accessFlags
            , methCode = codeItem
@@ -261,7 +261,7 @@ parseCodeItem hdr bs = do
          replicateM (fromIntegral handlerSize) (parseEncodedCatchHandler r)
   debugInfo <- subGet bs debugInfoOff parseDebugInfo
   -- insns <- either fail return $ decodeInstructions insnWords
-  return $ CodeItem
+  return CodeItem
            { codeRegs = regCount
            , codeInSize = inCount
            , codeOutSize = outCount
@@ -347,7 +347,7 @@ parseClassDef hdr bs = do
   (staticFields, instanceFields,
    directMethods, virtualMethods) <-
       subGet' bs dataOff ([], [], [], []) (parseClassData hdr bs)
-  return $ Class
+  return Class
            { classId = fromIntegral classIdx -- TODO: can this lose information?
            , classAccessFlags = accessFlags
            , classSuperId = fromIntegral superclassId -- TODO: ditto

@@ -211,7 +211,7 @@ constString dex (ConstString sid) =
 constString dex (ConstStringJumbo sid) =
   "\"" +++ pSDI (getStr dex sid) +++ "\"" +++ stringComm sid
 constString dex (ConstClass tid) =
-  (pSDI (getTypeName dex tid)) +++ typeComm tid
+  pSDI (getTypeName dex tid) +++ typeComm tid
 
 accessOpStr :: (IsString s, Monoid s) => AccessOp -> s
 accessOpStr (Get ty) = "get" +++ accessTypeStr ty
@@ -413,12 +413,12 @@ insnString _ _ (BinopLit8 op dst src i) =
   mkInsn (binopStr op +++ "-int/lit8")
          [iregStr dst, iregStr src, "#int " +++ integral i] +++
   intComm8 (fromIntegral i)
-insnString _ _ i@(PackedSwitchData _ _) =
+insnString _ _ i@(PackedSwitchData{}) =
   "packed-switch-data (" +++ integral size +++ " units)"
     where size = insnUnitCount i
-insnString _ _ i@(SparseSwitchData _ _) =
+insnString _ _ i@(SparseSwitchData{}) =
   "sparse-switch-data (" +++ integral size +++ " units)"
     where size = insnUnitCount i
-insnString _ _ i@(ArrayData _ _ _) =
+insnString _ _ i@(ArrayData{}) =
   "array-data (" +++ integral size +++ " units)"
     where size = insnUnitCount i

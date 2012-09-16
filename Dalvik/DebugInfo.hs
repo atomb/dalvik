@@ -1,5 +1,3 @@
-{-# LANGUAGE ParallelListComp #-}
-{-# LANGUAGE OverloadedStrings #-}
 module Dalvik.DebugInfo (executeInsns) where
 
 import qualified Data.ByteString.Char8 as CBS
@@ -31,7 +29,7 @@ startLocal :: DebugState -> Word32 -> Int32 -> Int32 -> Int32
            -> DebugState
 startLocal s r nid tid sid = s { dbgLocals = Map.alter start r (dbgLocals s) }
     where start (Just (LocalInfo a' 0xFFFFFFFF nid' tid' sid' : ls))  =
-            Just $ l' : (LocalInfo a' a nid' tid' sid') : ls
+            Just $ l' : LocalInfo a' a nid' tid' sid' : ls
           start (Just ls) = Just $ l' : ls
           start Nothing = Just [l']
           a = dbgAddr s
@@ -106,8 +104,8 @@ executeInsns dex code flags mid =
           srcFile = fromIntegral . classSourceNameId . getClass dex $ thisType
 
 finishLocals :: Word32 -> DebugState -> DebugState
-finishLocals lastAddr s = s { dbgLocals = Map.map updLocals (dbgLocals s) }
-  where updLocal (LocalInfo a 0xFFFFFFFF nid tid sid) =
-          LocalInfo a (lastAddr + 1) nid tid sid
-        updLocal l = l
-        updLocals ls = map updLocal ls
+finishLocals lastAddr s =
+  s { dbgLocals = Map.map (map updLocal) (dbgLocals s) }
+    where updLocal (LocalInfo a 0xFFFFFFFF nid tid sid) =
+            LocalInfo a (lastAddr + 1) nid tid sid
+          updLocal l = l

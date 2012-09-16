@@ -1,5 +1,3 @@
-{-# LANGUAGE ParallelListComp #-}
-
 module Dalvik.HexPrint where
 
 import Blaze.ByteString.Builder

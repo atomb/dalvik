@@ -176,7 +176,7 @@ methodLines dex (n, m) =
   , fld "      name" . pSDI' . getStr dex . methNameId $ method
   , fld "      type" $ squotes $ protoDesc dex proto
   , fldxs "      access" flags (flagsString AMethod flags)
-  , maybe ("      code          : (none)\n")
+  , maybe "      code          : (none)\n"
           (codeLines dex flags i)
           (methCode m)
   ] where method = getMethod dex i
@@ -187,7 +187,7 @@ methodLines dex (n, m) =
 
 codeLines :: DexFile -> AccessFlags -> MethodId -> CodeItem -> Builder
 codeLines dex flags mid code =
-  mconcatLines $
+  mconcatLines
   [ "      code          -"
   , fldn "      registers" $ codeRegs code
   , fldn "      ins" $ codeInSize code
@@ -198,8 +198,8 @@ codeLines dex flags mid code =
     fixedHex 6 nameAddr +++ "] " +++ methodStr dex mid
   , insnText
   , mconcatLines $
-    (fld "      catches" $
-     if null tries then "(none)" else integral (length tries)) :
+    fld "      catches"
+     (if null tries then "(none)" else integral (length tries)) :
     map (tryLines dex code) tries
   , fld "      positions" ""
   , mconcatLines positionText
@@ -232,7 +232,7 @@ codeLines dex flags mid code =
             " " +++ (if sid == -1 then "" else nstr sid)
           insnText = either
                      (\msg ->
-                        (CB.fromString $ "error parsing instructions: " ++ msg))
+                        CB.fromString $ "error parsing instructions: " ++ msg)
                      (mconcatLines . insnLines dex addr 0 insnUnits)
                      insns
           nstr nid = fromByteString . getStr dex . fromIntegral $ nid
@@ -249,7 +249,7 @@ insnLines dex addr off ws (i:is) =
   mconcat [ fixedHex 6 addr, ": ", unitStr, "|", fixedHex 4 off, ": ", istr ] :
   insnLines dex (addr + (l'*2)) (off + l') ws' is
     where (iws, ws') = splitAt l ws
-          istrs = map showCodeUnit $ iws
+          istrs = map showCodeUnit iws
           istrs' | length istrs < 8 = take 8 $ istrs ++ repeat "    "
                  | otherwise = take 7 istrs ++ ["... "]
           l = insnUnitCount i

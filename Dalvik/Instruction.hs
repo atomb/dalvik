@@ -20,6 +20,7 @@ import Control.Applicative()
 import Control.Monad
 import Data.Array
 import Data.Bits
+import Data.Function
 import Data.Int
 import Data.Word
 import Text.Printf
@@ -245,8 +246,8 @@ splitWord16' w = (fst4 b1, snd4 b1, fst4 b2, snd4 b2)
 type DecodeError = String -- TODO: replace with structured type
 
 prematureEnd :: Word8 -> Word16 -> DecodeError
-prematureEnd op w =
-  printf "Premature end of data stream at opcode %02x (%04x)" op w
+prematureEnd =
+  printf "Premature end of data stream at opcode %02x (%04x)"
 
 invalidOp :: Word8 -> DecodeError
 invalidOp op = "Invalid opcode: " ++ show op
@@ -281,18 +282,18 @@ data IFormatParser
   | InvalidOp
 
 iparseTable :: Array Word8 IFormatParser
-iparseTable = array (0x00, 0xFF) $
+iparseTable = array (0x00, 0xFF)
   [ (0x00, IF10x Nop)
   -- Move
-  , (0x01, IF12x $ \r1 r2 -> Move MNormal (R4 r1) (R4 r2))
+  , (0x01, IF12x (Move MNormal `on` R4))
   , (0x02, IF22x $ \r1 r2 -> Move MNormal (R8 r1) (R16 r2))
-  , (0x03, IF32x $ \r1 r2 -> Move MNormal (R16 r1) (R16 r2))
-  , (0x04, IF12x $ \r1 r2 -> Move MWide (R4 r1) (R4 r2))
+  , (0x03, IF32x (Move MNormal `on` R16))
+  , (0x04, IF12x (Move MWide `on` R4))
   , (0x05, IF22x $ \r1 r2 -> Move MWide (R8 r1) (R16 r2))
-  , (0x06, IF32x $ \r1 r2 -> Move MWide (R16 r1) (R16 r2))
-  , (0x07, IF12x $ \r1 r2 -> Move MObject (R4 r1) (R4 r2))
+  , (0x06, IF32x (Move MWide `on` R16))
+  , (0x07, IF12x (Move MObject `on` R4))
   , (0x08, IF22x $ \r1 r2 -> Move MObject (R8 r1) (R16 r2))
-  , (0x09, IF32x $ \r1 r2 -> Move MObject (R16 r1) (R16 r2))
+  , (0x09, IF32x (Move MObject `on` R16))
   , (0x0a, move1 MResult)
   , (0x0b, move1 MResultWide)
   , (0x0c, move1 MResultObject)
