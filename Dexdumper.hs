@@ -16,17 +16,17 @@ import Data.Word
 import System.Environment
 
 import Dalvik.AccessFlags
+import Dalvik.Apk
 import Dalvik.DebugInfo
 import Dalvik.HexPrint
 import Dalvik.Instruction
-import Dalvik.Parser
 import Dalvik.Printer
 import Dalvik.Types
 
 processFile :: FilePath -> IO ()
 processFile f = do
   putStrLn $ "Processing '" ++ f ++ "'..."
-  edex <- loadDexIO f
+  edex <- loadDexFromAnyIO f
   case edex of
     Left err -> putStrLn err
     Right dex -> do

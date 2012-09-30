@@ -21,11 +21,14 @@ Library
                     blaze-textual,
                     bytestring,
                     cereal,
+                    conduit,
                     containers,
-                    floatshow
+                    floatshow,
+                    zip-conduit
 
     Hs-Source-Dirs: .
     Exposed-Modules: Dalvik.AccessFlags
+                     Dalvik.Apk
                      Dalvik.HexPrint
                      Dalvik.Instruction
                      Dalvik.LEB128
