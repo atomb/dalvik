@@ -12,9 +12,6 @@ Synopsis:       Parser for the Dalvik virtual machine's DEX file format
 Description:    Parser for the Dalvik virtual machine's DEX file format
 Category:       Language
 
-Flag splitBase
-    Description: Choose the new smaller, split-up base package.
-
 Library
     Extensions:
 
