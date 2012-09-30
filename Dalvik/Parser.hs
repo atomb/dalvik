@@ -21,7 +21,7 @@ Based on documentation from:
     http://netmite.com/android/mydroid/dalvik/docs/dex-format.htm
 -}
 
-loadDexIO :: String -> IO (Either String DexFile)
+loadDexIO :: FilePath -> IO (Either String DexFile)
 loadDexIO f = loadDex <$> BS.readFile f
 
 loadDex :: BS.ByteString -> Either String DexFile
