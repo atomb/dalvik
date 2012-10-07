@@ -210,14 +210,12 @@ data LocalInfo
 
 {- Utility functions -}
 
-getStr :: DexFile -> StringId -> BS.ByteString
-getStr dex i = Map.findWithDefault (error msg) i (dexStrings dex)
-  where msg = "Unknown string ID " ++ show i
+getStr :: DexFile -> StringId -> Maybe BS.ByteString
+getStr dex i = Map.lookup i (dexStrings dex)
 
-getTypeName :: DexFile -> TypeId -> BS.ByteString
+getTypeName :: DexFile -> TypeId -> Maybe BS.ByteString
 getTypeName dex i =
-  getStr dex (Map.findWithDefault (error msg) i (dexTypeNames dex))
-    where msg = "Uknown type ID " ++ show i
+  getStr dex =<< Map.lookup i (dexTypeNames dex)
 
 getField :: DexFile -> FieldId -> Field
 getField dex i = Map.findWithDefault (error msg) i (dexFields dex)
@@ -239,5 +237,5 @@ findString :: DexFile -> BS.ByteString -> StringId
 findString dex t =
   case filter isThis (Map.toList (dexStrings dex)) of
     [(sid, _)] -> sid
-    _ -> error "Can't find StringId of 'this'"
+    _ -> error $ "Can't find StringId of " ++ show t
   where isThis (_, t') = t == t'

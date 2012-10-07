@@ -4,11 +4,12 @@ module Dalvik.Printer
   ( insnString
   , (+++)
   , pSDI
-  , pSDI'
   , lstr
   , squotes
   , protoDesc
   , methodStr
+  , getStr'
+  , getTypeName'
   ) where
 
 import Data.Bits
@@ -44,9 +45,6 @@ lstr n s = s ++ replicate (n - length s) ' '
 
 pSDI :: BS.ByteString -> Str
 pSDI = fromByteString
-
-pSDI' :: BS.ByteString -> Str
-pSDI' = squotes . fromByteString
 
 squotes :: Str -> Str
 squotes s = mconcat [ "'",  s, "'" ]
@@ -207,11 +205,11 @@ constString _ (ConstWideHigh16 i) =
   "#long " +++ integral i +++
   intComm (fromIntegral (i `shiftR` 48) :: Word16)
 constString dex (ConstString sid) =
-  "\"" +++ pSDI (getStr dex sid) +++ "\"" +++ stringComm sid
+  "\"" +++ getStr' dex sid +++ "\"" +++ stringComm sid
 constString dex (ConstStringJumbo sid) =
-  "\"" +++ pSDI (getStr dex sid) +++ "\"" +++ stringComm sid
+  "\"" +++ getStr' dex sid +++ "\"" +++ stringComm sid
 constString dex (ConstClass tid) =
-  pSDI (getTypeName dex tid) +++ typeComm tid
+  getTypeName' dex tid +++ typeComm tid
 
 accessOpStr :: (IsString s, Monoid s) => AccessOp -> s
 accessOpStr (Get ty) = "get" +++ accessTypeStr ty
@@ -233,36 +231,52 @@ ikindStr Direct = "direct"
 ikindStr Static = "static"
 ikindStr Interface = "interface"
 
+getStr' :: DexFile -> StringId -> Str
+getStr' _ sid | sid == -1 = "unknown"
+getStr' dex sid =
+  maybe ("<unknown string ID: " +++ integral sid +++ ">") pSDI $
+  getStr dex sid
+
+getTypeName' :: DexFile -> TypeId -> Str
+getTypeName' dex tid =
+  maybe ("<unknown type ID: " +++ integral tid +++ ">") pSDI $
+  getTypeName dex tid
+
+getTypeName'' :: DexFile -> TypeId -> Str
+getTypeName'' dex tid =
+  maybe ("<unknown type ID: " +++ integral tid +++ ">") (pSDI . tailSDI) $
+  getTypeName dex tid
+    where tailSDI = BS.map slashToDot . BS.init . BS.tail
+          slashToDot 36 = 46
+          slashToDot 47 = 46
+          slashToDot c = c
+
 fieldStr :: DexFile -> FieldId -> Str
 fieldStr dex fid = classStr +++ "." +++ fldStr +++ ":" +++ descStr
   where fld = getField dex fid
-        classStr = pSDI . getTypeName dex $ fieldClassId fld
-        fldStr = pSDI . getStr dex $ fieldNameId fld
-        descStr = pSDI . getTypeName dex $ fieldTypeId fld
+        classStr = getTypeName' dex $ fieldClassId fld
+        fldStr = getStr' dex $ fieldNameId fld
+        descStr = getTypeName' dex $ fieldTypeId fld
 
 methodStr :: DexFile -> MethodId -> Str
 methodStr dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
   where meth = getMethod dex mid
-        classStr = pSDI . tailSDI . getTypeName dex $ methClassId meth
-        nameStr = pSDI . getStr dex $ methNameId meth
+        classStr = getTypeName'' dex $ methClassId meth
+        nameStr = getStr' dex $ methNameId meth
         descStr = protoDesc dex . getProto dex $ methProtoId meth
-        tailSDI = BS.map slashToDot . BS.init . BS.tail
-        slashToDot 36 = 46
-        slashToDot 47 = 46
-        slashToDot c = c
 
 methodStr' :: DexFile -> MethodId -> Str
 methodStr' dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
   where meth = getMethod dex mid
-        classStr = pSDI . getTypeName dex $ methClassId meth
-        nameStr = pSDI . getStr dex $ methNameId meth
+        classStr = getTypeName' dex $ methClassId meth
+        nameStr = getStr' dex $ methNameId meth
         descStr = protoDesc dex . getProto dex $ methProtoId meth
 
 protoDesc :: DexFile -> Proto -> Str
 protoDesc dex proto =
   mconcat [ "(", argStr, ")", retStr ]
-  where argStr = mconcat $ map (pSDI . getTypeName dex) (protoParams proto)
-        retStr = pSDI $ getTypeName dex (protoRet proto)
+  where argStr = mconcat $ map (getTypeName' dex) (protoParams proto)
+        retStr = getTypeName' dex (protoRet proto)
 
 insnString :: DexFile -> Word32 -> Instruction -> Str
 insnString _ _ Nop = "nop" +++ " // spacer"
@@ -305,28 +319,28 @@ insnString dex _ (LoadConst d c@(ConstClass _)) =
 insnString _ _ (MonitorEnter r) = "monitor-enter v" +++ integral r
 insnString _ _ (MonitorExit r) = "monitor-exit v" +++ integral r
 insnString dex _ (CheckCast r tid) =
-  mconcat ["check-cast v", integral r,  ", ", pSDI $ getTypeName dex tid] +++
+  mconcat ["check-cast v", integral r,  ", ", getTypeName' dex tid] +++
   typeComm tid
 insnString dex _ (InstanceOf dst ref tid) =
   mkInsn "instance-of"
-         [ iregStr dst, iregStr ref, pSDI $ getTypeName dex tid ] +++
+         [ iregStr dst, iregStr ref, getTypeName' dex tid ] +++
   typeComm tid
 insnString _ _ (ArrayLength dst ref) =
   mkInsn' "array-length" [ dst, ref ]
 insnString dex _ (NewInstance dst tid) =
-  mkInsn "new-instance" [ iregStr dst, pSDI $ getTypeName dex tid ] +++
+  mkInsn "new-instance" [ iregStr dst, getTypeName' dex tid ] +++
   typeComm tid
 insnString dex _ (NewArray dst sz tid) =
   mkInsn "new-array"
-         [ iregStr dst, iregStr sz, pSDI $ getTypeName dex tid ] +++
+         [ iregStr dst, iregStr sz, getTypeName' dex tid ] +++
   typeComm tid
 insnString dex _ (FilledNewArray tid rs) =
   mkInsn "filled-new-array"
-         (map iregStr rs ++ [ pSDI $ getTypeName dex tid ]) +++
+         (map iregStr rs ++ [ getTypeName' dex tid ]) +++
   typeComm tid
 insnString dex _ (FilledNewArrayRange tid rs) =
   mkInsn "filled-new-array/range"
-         (map iregStr rs ++ [ pSDI $ getTypeName dex tid ]) +++
+         (map iregStr rs ++ [ getTypeName' dex tid ]) +++
   typeComm tid
 insnString _ a (FillArrayData dst off) =
   mkInsn "fill-array-data"

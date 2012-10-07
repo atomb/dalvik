@@ -92,9 +92,9 @@ executeInsns dex code flags mid =
           ptypes = (if hasThis then (thisType :) else id) paramTypes
           params = zip pnames ptypes
           pregs tid =
-            case CBS.unpack (getTypeName dex tid) of
-              "J" -> 2
-              "D" -> 2
+            case CBS.unpack `fmap` getTypeName dex tid of
+              Just "J" -> 2
+              Just "D" -> 2
               _ -> 1
           thisNid = fromIntegral . dexThisId $ dex
           lastAddr = fromIntegral $ length (codeInsns code) - 1

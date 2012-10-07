@@ -181,57 +181,59 @@ data Instruction
     deriving (Show)
 
 insnUnitCount :: Instruction -> Int
-insnUnitCount Nop = 1
-insnUnitCount (Move _ (R4 _) _) = 1
-insnUnitCount (Move _ (R8 _) _) = 2
-insnUnitCount (Move _ (R16 _) _) = 3
-insnUnitCount (Move1 _ _) = 1
-insnUnitCount ReturnVoid = 1
-insnUnitCount (Return _ _) = 1
-insnUnitCount (LoadConst _ (Const4 _)) = 1
-insnUnitCount (LoadConst _ (Const16 _)) = 2
-insnUnitCount (LoadConst _ (ConstHigh16 _)) = 2
-insnUnitCount (LoadConst _ (ConstWide16 _)) = 2
-insnUnitCount (LoadConst _ (Const32 _)) = 3
-insnUnitCount (LoadConst _ (ConstWide32 _)) = 3
-insnUnitCount (LoadConst _ (ConstWide _)) = 5
-insnUnitCount (LoadConst _ (ConstWideHigh16 _)) = 2
-insnUnitCount (LoadConst _ (ConstString _)) = 2
-insnUnitCount (LoadConst _ (ConstStringJumbo _)) = 3
-insnUnitCount (LoadConst _ (ConstClass _)) = 2
-insnUnitCount (MonitorEnter _) = 1
-insnUnitCount (MonitorExit _) = 1
-insnUnitCount (CheckCast _ _) = 2
-insnUnitCount (InstanceOf _ _ _) = 2
-insnUnitCount (ArrayLength _ _) = 1
-insnUnitCount (NewInstance _ _) = 2
-insnUnitCount (NewArray _ _ _) = 2
-insnUnitCount (FilledNewArray _ _) = 3
-insnUnitCount (FilledNewArrayRange _ _) = 3
-insnUnitCount (FillArrayData _ _) = 3
-insnUnitCount (Throw _) = 1
-insnUnitCount (Goto _) = 1
-insnUnitCount (Goto16 _) = 2
-insnUnitCount (Goto32 _) = 3
-insnUnitCount (PackedSwitch _ _) = 3
-insnUnitCount (SparseSwitch _ _) = 3
-insnUnitCount (Cmp _ _ _ _) = 2
-insnUnitCount (If _ _ _ _) = 2
-insnUnitCount (IfZero _ _ _) = 2
-insnUnitCount (ArrayOp _ _ _ _) = 2
-insnUnitCount (InstanceFieldOp _ _ _ _) = 2
-insnUnitCount (StaticFieldOp _ _ _) = 2
-insnUnitCount (Invoke _ _ _ _) = 3
-insnUnitCount (Unop _ _ _) = 1
-insnUnitCount (IBinop _ _ _ _ _) = 2
-insnUnitCount (FBinop _ _ _ _ _) = 2
-insnUnitCount (IBinopAssign _ _ _ _) = 1
-insnUnitCount (FBinopAssign _ _ _ _) = 1
-insnUnitCount (BinopLit16 _ _ _ _) = 2
-insnUnitCount (BinopLit8 _ _ _ _) = 2
-insnUnitCount (PackedSwitchData _ ts) = length ts + 4
-insnUnitCount (SparseSwitchData _ ts) = (length ts * 2) + 2
-insnUnitCount (ArrayData _ _ vs) = length vs + 4
+insnUnitCount i =
+  case i of
+    Nop -> 1
+    Move _ (R4 _) _ -> 1
+    Move _ (R8 _) _ -> 2
+    Move _ (R16 _) _ -> 3
+    Move1 {} -> 1
+    ReturnVoid -> 1
+    Return {} -> 1
+    LoadConst _ (Const4 _) -> 1
+    LoadConst _ (Const16 _) -> 2
+    LoadConst _ (ConstHigh16 _) -> 2
+    LoadConst _ (ConstWide16 _) -> 2
+    LoadConst _ (Const32 _) -> 3
+    LoadConst _ (ConstWide32 _) -> 3
+    LoadConst _ (ConstWide _) -> 5
+    LoadConst _ (ConstWideHigh16 _) -> 2
+    LoadConst _ (ConstString _) -> 2
+    LoadConst _ (ConstStringJumbo _) -> 3
+    LoadConst _ (ConstClass _) -> 2
+    MonitorEnter {} -> 1
+    MonitorExit {} -> 1
+    CheckCast {} -> 2
+    InstanceOf {} -> 2
+    ArrayLength {} -> 1
+    NewInstance {} -> 2
+    NewArray {} -> 2
+    FilledNewArray {} -> 3
+    FilledNewArrayRange {} -> 3
+    FillArrayData {} -> 3
+    Throw {} -> 1
+    Goto {} -> 1
+    Goto16 {} -> 2
+    Goto32 {} -> 3
+    PackedSwitch {} -> 3
+    SparseSwitch {} -> 3
+    Cmp {} -> 2
+    If {} -> 2
+    IfZero {} -> 2
+    ArrayOp {} -> 2
+    InstanceFieldOp {} -> 2
+    StaticFieldOp {} -> 2
+    Invoke {} -> 3
+    Unop {} -> 1
+    IBinop {} -> 2
+    FBinop {} -> 2
+    IBinopAssign {} -> 1
+    FBinopAssign {} -> 1
+    BinopLit16 {} -> 2
+    BinopLit8 {} -> 2
+    PackedSwitchData _ ts -> length ts + 4
+    SparseSwitchData _ ts -> (length ts * 2) + 2
+    ArrayData _ _ vs -> length vs + 4
 
 splitWord8 :: Word8 -> (Word4, Word4)
 splitWord8 w = (fromIntegral $ w `shiftR` 4, fromIntegral $ w .&. 0x0F)
