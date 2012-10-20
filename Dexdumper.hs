@@ -30,10 +30,9 @@ processFile f = do
   case edex of
     Left err -> putStrLn err
     Right dex -> do
-      LBS.putStrLn . toLazyByteString . hdrLines f . dexHeader $ dex
-      LBS.putStrLn . toLazyByteString . clsLines . dexClasses $ dex
-      LBS.putStrLn ""
-        where clsLines = mconcatLines . map (classLines dex) . Map.toList
+      hdrLines f (dexHeader dex)
+      mapM_ (classLines dex) . Map.toList . dexClasses $ dex
+      p ""
 
 escape :: String -> String
 escape [] = []
@@ -47,46 +46,52 @@ escapebs = CBS.pack . escape . CBS.unpack
 mconcatLines :: [Builder] -> Builder
 mconcatLines = mconcat . intersperse "\n"
 
-hdrLines :: FilePath -> DexHeader -> Builder
-hdrLines f hdr =
-  mconcatLines
-  [ mconcat
-    [ "Opened "
-    , squotes (CB.fromString f)
-    , ", DEX version "
-    , squotes . B.fromByteString . escapebs . CBS.take 3 $
-      dexVersion hdr
-    ]
-  , "DEX file header:"
-  , fld "magic" . squotes . B.fromByteString . escapebs .
-        CBS.append (dexMagic hdr) $ dexVersion hdr
-  , fld "checksum" . fixedHex 8 $ dexChecksum hdr
-  , fld "signature" . sig $ dexSHA1 hdr
-  , fldn "file_size" $ dexFileLen hdr
-  , fldn "header_size" $ dexHdrLen hdr
-  , fldn "link_size" $ dexLinkSize hdr
-  , fldx "link_off" $ dexLinkOff hdr
-  , fldn "string_ids_size" $ dexNumStrings hdr
-  , fldx "string_ids_off" $ dexOffStrings hdr
-  , fldn "type_ids_size" $ dexNumTypes hdr
-  , fldx "type_ids_off" $ dexOffTypes hdr
-  , fldn "field_ids_size" $ dexNumFields hdr
-  , fldx "field_ids_off" $ dexOffFields hdr
-  , fldn "method_ids_size" $ dexNumMethods hdr
-  , fldx "method_ids_off" $ dexOffMethods hdr
-  , fldn "class_defs_size" $ dexNumClassDefs hdr
-  , fldx "class_defs_off" $ dexOffClassDefs hdr
-  , fldn "data_size" $ dexDataSize hdr
-  , fldx "data_off" $ dexDataOff hdr
-  ]
-  where sig s = mconcat [ mconcat (take 2 s')
-                        , "..."
-                        , mconcat (drop 18 s')
-                        ]
-          where s' = map (fixedHex 2) s
+pl :: [Builder] -> IO ()
+pl = LBS.putStrLn . toLazyByteString . mconcat
+
+p :: Builder -> IO ()
+p = LBS.putStrLn . toLazyByteString
+
+hdrLines :: FilePath -> DexHeader -> IO ()
+hdrLines f hdr = do
+  pl [ "Opened "
+     , squotes (CB.fromString f)
+     , ", DEX version "
+     , squotes . B.fromByteString . escapebs . CBS.take 3 $
+       dexVersion hdr
+     ]
+  p "DEX file header:"
+  p $ fld "magic" . squotes . B.fromByteString . escapebs .
+          CBS.append (dexMagic hdr) $ dexVersion hdr
+  p $ fld "checksum" . fixedHex 8 $ dexChecksum hdr
+  p $ fld "signature" . sig $ dexSHA1 hdr
+  p $ fldn "file_size" $ dexFileLen hdr
+  p $ fldn "header_size" $ dexHdrLen hdr
+  p $ fldn "link_size" $ dexLinkSize hdr
+  p $ fldx "link_off" $ dexLinkOff hdr
+  p $ fldn "string_ids_size" $ dexNumStrings hdr
+  p $ fldx "string_ids_off" $ dexOffStrings hdr
+  p $ fldn "type_ids_size" $ dexNumTypes hdr
+  p $ fldx "type_ids_off" $ dexOffTypes hdr
+  p $ fldn "field_ids_size" $ dexNumFields hdr
+  p $ fldx "field_ids_off" $ dexOffFields hdr
+  p $ fldn "method_ids_size" $ dexNumMethods hdr
+  p $ fldx "method_ids_off" $ dexOffMethods hdr
+  p $ fldn "class_defs_size" $ dexNumClassDefs hdr
+  p $ fldx "class_defs_off" $ dexOffClassDefs hdr
+  p $ fldn "data_size" $ dexDataSize hdr
+  p $ fldx "data_off" $ dexDataOff hdr
+    where sig s = mconcat [ mconcat (take 2 s')
+                          , "..."
+                          , mconcat (drop 18 s')
+                          ]
+            where s' = map (fixedHex 2) s
 
 fld :: String -> Builder -> Builder
 fld n v = mconcat [ CB.fromString (lstr 20 n), ": " , v ]
+
+fldbroken :: String -> Builder -> Builder
+fldbroken n v = mconcat [ CB.fromString n, "              : " , v ]
 
 fldx :: String -> Word32 -> Builder
 fldx n v = fld n $ mconcat [ integral v, " (0x", fixedHex 6 v, ")" ]
@@ -109,105 +114,92 @@ fldns :: String -> Word32 -> Builder -> Builder
 fldns n (-1) _ = fld n "-1 (unknown)"
 fldns n v s = fld n $ mconcat [ integral v, " (", s, ")" ]
 
-classLines :: DexFile -> (TypeId, Class) -> Builder
-classLines dex (i, cls) =
-  mconcatLines
-  [ ""
-  , mconcat [ "Class #", integral i, " header:" ]
-  , fldn "class_idx" $ classId cls
-  , fldx4 "access_flags" $ classAccessFlags cls
-  , fldn "superclass_idx" $ classSuperId cls
-  , fldx "interfaces_off" $ classInterfacesOff cls
-  , fldn "source_file_idx" $ classSourceNameId cls
-  , fldx "annotations_off" $ classAnnotsOff cls
-  , fldx "class_data_off" $ classDataOff cls
-  , fldn "static_fields_size" $ length (classStaticFields cls)
-  , fldn "instance_fields_size" $ length (classInstanceFields cls)
-  , fldn "direct_methods_size" $ length (classDirectMethods cls)
-  , fldn "virtual_methods_size" $ length (classVirtualMethods cls)
-  , ""
-  , mconcat [ "Class #", integral i, "            -" ]
-  , fld "  Class descriptor" $ squotes $ getTypeName' dex (classId cls)
-  , fldxs "  Access flags"
+classLines :: DexFile -> (TypeId, Class) -> IO ()
+classLines dex (i, cls) = do
+  p ""
+  pl [ "Class #", integral i, " header:" ]
+  p $ fldn "class_idx" $ classId cls
+  p $ fldx4 "access_flags" $ classAccessFlags cls
+  p $ fldn "superclass_idx" $ classSuperId cls
+  p $ fldx "interfaces_off" $ classInterfacesOff cls
+  p $ fldn "source_file_idx" $ classSourceNameId cls
+  p $ fldx "annotations_off" $ classAnnotsOff cls
+  p $ fldx "class_data_off" $ classDataOff cls
+  p $ fldn "static_fields_size" $ length (classStaticFields cls)
+  p $ fldn "instance_fields_size" $ length (classInstanceFields cls)
+  p $ fldn "direct_methods_size" $ length (classDirectMethods cls)
+  p $ fldn "virtual_methods_size" $ length (classVirtualMethods cls)
+  p $ ""
+  pl [ "Class #", integral i, "            -" ]
+  p $ fld "  Class descriptor" $ squotes $ getTypeName' dex (classId cls)
+  p $ fldxs "  Access flags"
     (classAccessFlags cls) (flagsString AClass (classAccessFlags cls))
-  , fld "  Superclass" $ squotes $ getTypeName' dex (classSuperId cls)
-  , mconcatLines $
-    "  Interfaces        -" :
-    map (interfaceLines dex) (zip [0..] (classInterfaces cls))
-  , mconcatLines $
-    "  Static fields     -" :
-    map (fieldLines dex) (zip [0..] (classStaticFields cls))
-  , mconcatLines $
-    "  Instance fields   -" :
-    map (fieldLines dex) (zip [0..] (classInstanceFields cls))
-  , mconcatLines $
-    "  Direct methods    -" :
-    map (methodLines dex) (zip [0..] (classDirectMethods cls))
-  , mconcatLines $
-    "  Virtual methods   -" :
-    map (methodLines dex) (zip [0..] (classVirtualMethods cls))
-  , fldns "  source_file_idx"
+  p $ fld "  Superclass" $ squotes $ getTypeName' dex (classSuperId cls)
+  p "  Interfaces        -"
+  mapM_ (interfaceLines dex) (zip [0..] (classInterfaces cls))
+  p "  Static fields     -"
+  mapM_ (fieldLines dex) (zip [0..] (classStaticFields cls))
+  p "  Instance fields   -"
+  mapM_ (fieldLines dex) (zip [0..] (classInstanceFields cls))
+  p "  Direct methods    -"
+  mapM_ (methodLines dex) (zip [0..] (classDirectMethods cls))
+  p "  Virtual methods   -"
+  mapM_ (methodLines dex) (zip [0..] (classVirtualMethods cls))
+  p $ fldns "  source_file_idx"
     (classSourceNameId cls)
     (getStr' dex (classSourceNameId cls))
-  ]
 
-interfaceLines :: DexFile -> (Word32, TypeId) -> Builder
+interfaceLines :: DexFile -> (Word32, TypeId) -> IO ()
 interfaceLines dex (n, i) =
-  fld ("    #" ++ show n) (squotes (getTypeName' dex i))
+  p $ fldbroken ("    #" ++ show n) (squotes (getTypeName' dex i))
 
-fieldLines :: DexFile -> (Word32, EncodedField) -> Builder
-fieldLines dex (n, f) =
-  mconcatLines
-  [ mconcat
-    [ "    #", integral n
-    , "              : (in ", clsName, ")" ]
-  , fld "      name" . squotes . getStr' dex . fieldNameId $ field
-  , fld "      type" . squotes . getTypeName' dex . fieldTypeId $ field
-  , fldxs "      access"
-    (fieldAccessFlags f)
-    (flagsString AField (fieldAccessFlags f))
-  ] where field = getField dex i
+fieldLines :: DexFile -> (Word32, EncodedField) -> IO ()
+fieldLines dex (n, f) = do
+  pl [ "    #", integral n
+     , "              : (in ", clsName, ")" ]
+  p $ fld "      name" . squotes . getStr' dex . fieldNameId $ field
+  p $ fld "      type" . squotes . getTypeName' dex . fieldTypeId $ field
+  p $ fldxs "      access"
+      (fieldAccessFlags f)
+      (flagsString AField (fieldAccessFlags f))
+    where field = getField dex i
           clsName = getTypeName' dex . fieldClassId $ field
           i = fieldId f
 
-methodLines :: DexFile -> (Word32, EncodedMethod) -> Builder
-methodLines dex (n, m) =
-  mconcatLines
-  [ mconcat
-    [ "    #", integral n , "              : (in " , clsName, ")" ]
-  , fld "      name" . squotes . getStr' dex . methNameId $ method
-  , fld "      type" $ squotes $ protoDesc dex proto
-  , fldxs "      access" flags (flagsString AMethod flags)
-  , maybe "      code          : (none)\n"
-          (codeLines dex flags i)
-          (methCode m)
-  ] where method = getMethod dex i
+methodLines :: DexFile -> (Word32, EncodedMethod) -> IO ()
+methodLines dex (n, m) = do
+  pl [ "    #", integral n , "              : (in " , clsName, ")" ]
+  p $ fld "      name" . squotes . getStr' dex . methNameId $ method
+  p $ fld "      type" $ squotes $ protoDesc dex proto
+  p $ fldxs "      access" flags (flagsString AMethod flags)
+  maybe (p "      code          : (none)\n")
+        (codeLines dex flags i)
+        (methCode m)
+    where method = getMethod dex i
           proto = getProto dex (methProtoId method)
           flags = methAccessFlags m
           clsName = getTypeName' dex . methClassId $ method
           i = methId m
 
-codeLines :: DexFile -> AccessFlags -> MethodId -> CodeItem -> Builder
-codeLines dex flags mid code =
-  mconcatLines
-  [ "      code          -"
-  , fldn "      registers" $ codeRegs code
-  , fldn "      ins" $ codeInSize code
-  , fldn "      outs" $ codeOutSize code
-  , fld "      insns size" $
+codeLines :: DexFile -> AccessFlags -> MethodId -> CodeItem -> IO ()
+codeLines dex flags mid code = do
+  p "      code          -"
+  p $ fldn "      registers" $ codeRegs code
+  p $ fldn "      ins" $ codeInSize code
+  p $ fldn "      outs" $ codeOutSize code
+  p $ fld "      insns size" $
     integral (length insnUnits) +++ " 16-bit code units"
-  , fixedHex 6 nameAddr +++ ":                                        |[" +++
+  p $ fixedHex 6 nameAddr +++ ":                                        |[" +++
     fixedHex 6 nameAddr +++ "] " +++ methodStr dex mid
-  , insnText
-  , mconcatLines $
-    fld "      catches"
-     (if null tries then "(none)" else integral (length tries)) :
-    map (tryLines dex code) tries
-  , fld "      positions" ""
-  , mconcatLines positionText
-  , fld "      locals" ""
-  , localsText +++ (if Map.null (dbgLocals debugState) then "" else "\n")
-  ]
+  insnText
+  p $ fld "      catches"
+      (if null tries then "(none)" else integral (length tries))
+  mapM_ (tryLines dex code) tries
+  p $ fld "      positions" ""
+  p $ mconcatLines positionText
+  p $ fld "      locals" ""
+  if Map.null (dbgLocals debugState) then return () else plocals
+  p ""
     where tries = codeTryItems code
           insnUnits = codeInsns code
           insns = decodeInstructions insnUnits
@@ -215,40 +207,39 @@ codeLines dex flags mid code =
           nameAddr = addr - 16 -- Ick!
           debugState = executeInsns dex code flags mid
           positionText = map ppos . reverse . dbgPositions $ debugState
-          localsText = plocals . dbgLocals $ debugState
           ppos (PositionInfo a l) =
             "        0x" +++ fixedHex 4 a +++
             " line=" +++ integral l
-          plocals m = (mconcatLines .
-                       map plocal .
-                       sortBy cmpLocal .
-                       filter hasName)
-                      [ (r, l) | (r, ls) <- Map.toList m, l <- ls ]
+          plocals = (mapM_ plocal .
+                     sortBy cmpLocal .
+                     filter hasName)
+                    [ (r, l) | (r, ls) <- Map.toList (dbgLocals debugState)
+                             , l <- ls ]
           cmpLocal (_, LocalInfo _ e _ _ _) (_, LocalInfo _ e' _ _ _) =
             compare e e'
           hasName (_, LocalInfo _ _ nid _ _) = nid /= (-1)
-          plocal (r, LocalInfo s e nid tid sid) =
+          plocal (r, LocalInfo s e nid tid sid) = p $
             "        0x" +++ fixedHex 4 s +++
             " - 0x" +++ fixedHex 4 e +++ " reg=" +++
             integral r +++ " " +++ nstr nid +++ " " +++ tstr tid +++
             " " +++ (if sid == -1 then "" else nstr sid)
           insnText = either
-                     (\msg ->
-                        CB.fromString $ "error parsing instructions: " ++ msg)
-                     (mconcatLines . insnLines dex addr 0 insnUnits)
+                     (\msg -> p . CB.fromString $
+                              "error parsing instructions: " ++ msg)
+                     (insnLines dex addr 0 insnUnits)
                      insns
           nstr nid = getStr' dex . fromIntegral $ nid
           tstr tid = getTypeName' dex . fromIntegral $ tid
 
 insnLines :: DexFile -> Word32 -> Word32 -> [Word16] -> [Instruction]
-          -> [Builder]
-insnLines _ _ _ [] [] = []
+          -> IO ()
+insnLines _ _ _ [] [] = return ()
 insnLines _ _ _ [] is = error $ "Ran out of code units (" ++
                       show is ++ " instructions left)"
 insnLines _ _ _ ws [] = error $ "Ran out of instructions (" ++
                       show (length ws) ++ " code units left)"
-insnLines dex addr off ws (i:is) =
-  mconcat [ fixedHex 6 addr, ": ", unitStr, "|", fixedHex 4 off, ": ", istr ] :
+insnLines dex addr off ws (i:is) = do
+  pl [ fixedHex 6 addr, ": ", unitStr, "|", fixedHex 4 off, ": ", istr ]
   insnLines dex (addr + (l'*2)) (off + l') ws' is
     where (iws, ws') = splitAt l ws
           istrs = map showCodeUnit iws
@@ -261,30 +252,30 @@ insnLines dex addr off ws (i:is) =
                            fixedHex 2 ((w  .&. 0xFF00) `shiftR` 8)
           istr = insnString dex off i
 
-tryLines :: DexFile -> CodeItem -> TryItem -> Builder
-tryLines dex code try =
-  mconcatLines
-  [ mconcat [ "        0x"
-            , fixedHex 4 (tryStartAddr try)
-            ,  " - 0x"
-            , fixedHex 4 end
-            ]
-  , mconcatLines $ handlerLines ++ anyLine
-  ]
+tryLines :: DexFile -> CodeItem -> TryItem -> IO ()
+tryLines dex code try = do
+  pl [ "        0x"
+     , fixedHex 4 (tryStartAddr try)
+     ,  " - 0x"
+     , fixedHex 4 end
+     ]
+  handlerLines
+  anyLine
     where end = tryStartAddr try + fromIntegral (tryInsnCount try)
           catches = filter
                     ((== tryHandlerOff try) . fromIntegral . chHandlerOff)
                     (codeHandlers code)
           handlers = mconcat $ map chHandlers catches
-          handlerLines = [ mconcat [ "          "
+          handlerLines = mapM_ p
+                         [ mconcat [ "          "
                                    , getTypeName' dex ty
                                    , " -> 0x"
                                    , fixedHex 4 addr
                                    ] |
                            (ty, addr) <- handlers
                          ]
-          anyLine = map
-                    (\addr -> "          <any> -> 0x" +++ fixedHex 4 addr)
+          anyLine = mapM_
+                    (\addr -> p $ "          <any> -> 0x" +++ fixedHex 4 addr)
                     (mapMaybe chAllAddr catches)
 
 main :: IO ()
