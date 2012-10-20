@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main ( main ) where
 
+import Control.Monad
 import Data.Bits
 import qualified Data.ByteString.Char8 as CBS
 import qualified Data.ByteString.Lazy.Char8 as LBS
@@ -42,9 +43,6 @@ escape (c : s) = c : escape s
 
 escapebs :: CBS.ByteString -> CBS.ByteString
 escapebs = CBS.pack . escape . CBS.unpack
-
-mconcatLines :: [Builder] -> Builder
-mconcatLines = mconcat . intersperse "\n"
 
 pl :: [Builder] -> IO ()
 pl = LBS.putStrLn . toLazyByteString . mconcat
@@ -172,7 +170,7 @@ methodLines dex (n, m) = do
   p $ fld "      name" . squotes . getStr' dex . methNameId $ method
   p $ fld "      type" $ squotes $ protoDesc dex proto
   p $ fldxs "      access" flags (flagsString AMethod flags)
-  maybe (p "      code          : (none)\n")
+  maybe (p "      code          : (none)" >> p "")
         (codeLines dex flags i)
         (methCode m)
     where method = getMethod dex i
@@ -196,9 +194,9 @@ codeLines dex flags mid code = do
       (if null tries then "(none)" else integral (length tries))
   mapM_ (tryLines dex code) tries
   p $ fld "      positions" ""
-  p $ mconcatLines positionText
+  positionText
   p $ fld "      locals" ""
-  if Map.null (dbgLocals debugState) then return () else plocals
+  unless (Map.null (dbgLocals debugState)) plocals
   p ""
     where tries = codeTryItems code
           insnUnits = codeInsns code
@@ -206,8 +204,8 @@ codeLines dex flags mid code = do
           addr = codeInsnOff code
           nameAddr = addr - 16 -- Ick!
           debugState = executeInsns dex code flags mid
-          positionText = map ppos . reverse . dbgPositions $ debugState
-          ppos (PositionInfo a l) =
+          positionText = mapM_ ppos . reverse . dbgPositions $ debugState
+          ppos (PositionInfo a l) = p $
             "        0x" +++ fixedHex 4 a +++
             " line=" +++ integral l
           plocals = (mapM_ plocal .
