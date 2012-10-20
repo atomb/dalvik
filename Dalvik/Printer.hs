@@ -59,6 +59,13 @@ mkInsn' :: (Show a, Integral a) => Str -> [a] -> Str
 mkInsn' name args = mkInsn name (map iregStr args)
 {-# INLINE mkInsn' #-}
 
+mkInsnb :: (Monoid s, IsString s) => s -> [s] -> [s] -> s
+mkInsnb name bargs args =
+  mconcat [ name, " {", mconcat (intersperse ", " bargs), "}, "
+          , mconcat (intersperse ", " args)
+          ]
+{-# INLINE mkInsnb #-}
+
 methodComm :: MethodId -> Str
 methodComm mid = " // method@" +++ fixedHex 4 mid
 
@@ -335,12 +342,12 @@ insnString dex _ (NewArray dst sz tid) =
          [ iregStr dst, iregStr sz, getTypeName' dex tid ] +++
   typeComm tid
 insnString dex _ (FilledNewArray tid rs) =
-  mkInsn "filled-new-array"
-         (map iregStr rs ++ [ getTypeName' dex tid ]) +++
+  mkInsnb "filled-new-array"
+          (map iregStr rs) [ getTypeName' dex tid ] +++
   typeComm tid
 insnString dex _ (FilledNewArrayRange tid rs) =
-  mkInsn "filled-new-array/range"
-         (map iregStr rs ++ [ getTypeName' dex tid ]) +++
+  mkInsnb "filled-new-array/range"
+          (map iregStr rs) [ getTypeName' dex tid ] +++
   typeComm tid
 insnString _ a (FillArrayData dst off) =
   mkInsn "fill-array-data"
@@ -419,6 +426,10 @@ insnString _ _ (FBinopAssign op False dst src) =
   mkInsn' (binopStr op +++ "-float/2addr") [ dst, src ]
 insnString _ _ (FBinopAssign op True dst src) =
   mkInsn' (binopStr op +++ "-double/2addr") [ dst, src ]
+insnString _ _ (BinopLit16 RSub dst src i) =
+  mkInsn "rsub-int"
+         [iregStr dst, iregStr src, "#int " +++ integral i] +++
+  intComm16 (fromIntegral i)
 insnString _ _ (BinopLit16 op dst src i) =
   mkInsn (binopStr op +++ "-int/lit16")
          [iregStr dst, iregStr src, "#int " +++ integral i] +++
