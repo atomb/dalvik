@@ -257,24 +257,20 @@ tryLines dex code try = do
      ,  " - 0x"
      , fixedHex 4 end
      ]
-  handlerLines
-  anyLine
+  mapM_ pl [ [ "          "
+             , getTypeName' dex ty
+             , " -> 0x"
+             , fixedHex 4 addr
+             ] |
+             (ty, addr) <- handlers
+           ]
+  mapM_ (\addr -> p $ "          <any> -> 0x" +++ fixedHex 4 addr)
+        (mapMaybe chAllAddr catches)
     where end = tryStartAddr try + fromIntegral (tryInsnCount try)
           catches = filter
                     ((== tryHandlerOff try) . fromIntegral . chHandlerOff)
                     (codeHandlers code)
           handlers = mconcat $ map chHandlers catches
-          handlerLines = mapM_ p
-                         [ mconcat [ "          "
-                                   , getTypeName' dex ty
-                                   , " -> 0x"
-                                   , fixedHex 4 addr
-                                   ] |
-                           (ty, addr) <- handlers
-                         ]
-          anyLine = mapM_
-                    (\addr -> p $ "          <any> -> 0x" +++ fixedHex 4 addr)
-                    (mapMaybe chAllAddr catches)
 
 main :: IO ()
 main = mapM_ processFile =<< getArgs
