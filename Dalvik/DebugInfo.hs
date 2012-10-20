@@ -19,6 +19,7 @@ initialDebugState info srcFile =
   , dbgEpilogueBegin = False
   , dbgLocals        = Map.empty
   , dbgPositions     = []
+  , dbgSeqNo         = 0
   }
 
 dbgLineBase, dbgLineRange :: Word32
@@ -27,25 +28,31 @@ dbgLineRange = 15
 
 startLocal :: DebugState -> Word32 -> Int32 -> Int32 -> Int32
            -> DebugState
-startLocal s r nid tid sid = s { dbgLocals = Map.alter start r (dbgLocals s) }
-    where start (Just (LocalInfo a' 0xFFFFFFFF nid' tid' sid' : ls))  =
-            Just $ l' : LocalInfo a' a nid' tid' sid' : ls
+startLocal s r nid tid sid = s { dbgLocals = Map.alter start r (dbgLocals s)
+                               , dbgSeqNo = n + 1
+                               }
+    where start (Just (LocalInfo 0 a' 0xFFFFFFFF nid' tid' sid' : ls))  =
+            Just $ l' : LocalInfo n a' a nid' tid' sid' : ls
           start (Just ls) = Just $ l' : ls
           start Nothing = Just [l']
           a = dbgAddr s
-          l' = LocalInfo a 0xFFFFFFFF nid tid sid
+          n = dbgSeqNo s
+          l' = LocalInfo 0 a 0xFFFFFFFF nid tid sid
 
 endLocal :: DebugState -> Word32 -> DebugState
-endLocal s r = s { dbgLocals = Map.alter fixupEnd r (dbgLocals s) }
-  where fixupEnd (Just (LocalInfo a _ nid tid sid : ls)) =
-          Just $ LocalInfo a (dbgAddr s) nid tid sid : ls
+endLocal s r = s { dbgLocals = Map.alter fixupEnd r (dbgLocals s)
+                 , dbgSeqNo = n + 1
+                 }
+  where fixupEnd (Just (LocalInfo _ a _ nid tid sid : ls)) =
+          Just $ LocalInfo n a (dbgAddr s) nid tid sid : ls
         fixupEnd _ =
-          Just [LocalInfo 0 (dbgAddr s) (-1) (-1) (-1)]
+          Just [LocalInfo n 0 (dbgAddr s) (-1) (-1) (-1)]
+        n = dbgSeqNo s
 
 restartLocal :: DebugState -> Word32 -> DebugState
 restartLocal s r =
   case Map.findWithDefault [] r (dbgLocals s) of
-    (LocalInfo _ _ nid tid sid : _) -> startLocal s r nid tid sid
+    (LocalInfo _ _ _ nid tid sid : _) -> startLocal s r nid tid sid
     [] -> startLocal s r (-1) (-1) (-1)
 
 executeInsn :: DebugState -> DebugInstruction -> DebugState
@@ -106,6 +113,6 @@ executeInsns dex code flags mid =
 finishLocals :: Word32 -> DebugState -> DebugState
 finishLocals lastAddr s =
   s { dbgLocals = Map.map (map updLocal) (dbgLocals s) }
-    where updLocal (LocalInfo a 0xFFFFFFFF nid tid sid) =
-            LocalInfo a (lastAddr + 1) nid tid sid
+    where updLocal (LocalInfo _ a 0xFFFFFFFF nid tid sid) =
+            LocalInfo (dbgSeqNo s) a (lastAddr + 1) nid tid sid
           updLocal l = l

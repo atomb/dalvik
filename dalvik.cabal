@@ -29,6 +29,7 @@ Library
     Hs-Source-Dirs: .
     Exposed-Modules: Dalvik.AccessFlags
                      Dalvik.Apk
+                     Dalvik.DebugInfo
                      Dalvik.HexPrint
                      Dalvik.Instruction
                      Dalvik.LEB128

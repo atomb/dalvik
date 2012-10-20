@@ -215,10 +215,10 @@ codeLines dex flags mid code = do
                      filter hasName)
                     [ (r, l) | (r, ls) <- Map.toList (dbgLocals debugState)
                              , l <- ls ]
-          cmpLocal (_, LocalInfo _ e _ _ _) (_, LocalInfo _ e' _ _ _) =
-            compare e e'
-          hasName (_, LocalInfo _ _ nid _ _) = nid /= (-1)
-          plocal (r, LocalInfo s e nid tid sid) = p $
+          cmpLocal (_, LocalInfo n _ e _ _ _) (_, LocalInfo n' _ e' _ _ _) =
+            compare (e, n) (e', n')
+          hasName (_, LocalInfo _ _ _ nid _ _) = nid /= (-1)
+          plocal (r, LocalInfo _ s e nid tid sid) = p $
             "        0x" +++ fixedHex 4 s +++
             " - 0x" +++ fixedHex 4 e +++ " reg=" +++
             integral r +++ " " +++ nstr nid +++ " " +++ tstr tid +++

@@ -191,6 +191,7 @@ data DebugState
     , dbgEpilogueBegin :: Bool
     , dbgLocals        :: Map Word32 [LocalInfo]
     , dbgPositions     :: [PositionInfo]
+    , dbgSeqNo         :: Word32
     } deriving (Show)
 
 data PositionInfo
@@ -201,7 +202,8 @@ data PositionInfo
 
 data LocalInfo
   = LocalInfo
-    { lStartAddr :: Word32
+    { lSeqNo     :: Word32
+    , lStartAddr :: Word32
     , lEndAddr   :: Word32
     , lNameID    :: Int32
     , lTypeID    :: Int32
