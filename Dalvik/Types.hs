@@ -127,7 +127,7 @@ data CodeItem
     { codeRegs      :: Word16
     , codeInSize    :: Word16
     , codeOutSize   :: Word16
-    , codeDebugInfo :: DebugInfo
+    , codeDebugInfo :: Maybe DebugInfo
     , codeInsnOff   :: Word32
     , codeInsns     :: [Word16]
     , codeTryItems  :: [TryItem]

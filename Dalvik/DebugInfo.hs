@@ -22,6 +22,19 @@ initialDebugState info srcFile =
   , dbgSeqNo         = 0
   }
 
+emptyDebugState :: DebugState
+emptyDebugState =
+  DebugState
+  { dbgAddr          = 0
+  , dbgLine          = 0
+  , dbgSourceFile    = -1
+  , dbgPrologueEnd   = False
+  , dbgEpilogueBegin = False
+  , dbgLocals        = Map.empty
+  , dbgPositions     = []
+  , dbgSeqNo         = 0
+  }
+
 dbgLineBase, dbgLineRange :: Word32
 dbgLineBase = -4
 dbgLineRange = 15
@@ -85,13 +98,14 @@ executeInsns :: DexFile
              -> AccessFlags
              -> MethodId
              -> DebugState
-executeInsns dex code flags mid =
+executeInsns _ (CodeItem { codeDebugInfo = Nothing }) _ _ =
+  emptyDebugState
+executeInsns dex code@(CodeItem { codeDebugInfo = Just info }) flags mid =
   finishLocals lastAddr $
   foldl' executeInsn (initialDebugState info srcFile) (is reg0 params)
     where is _ [] = dbgByteCodes info
           is r ((n, t) : rest) =
             StartLocal r n (fromIntegral t) : is (r + pregs t) rest
-          info = codeDebugInfo code
           hasThis = not $ hasAccessFlag ACC_STATIC flags
           reg0 = fromIntegral (codeRegs code) - sum (map pregs ptypes)
           pnames = (if hasThis then (thisNid :) else id)

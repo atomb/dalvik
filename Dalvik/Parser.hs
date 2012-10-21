@@ -259,7 +259,7 @@ parseCodeItem hdr bs = do
     else
       do handlerSize <- getULEB128
          replicateM (fromIntegral handlerSize) (parseEncodedCatchHandler r)
-  debugInfo <- subGet bs debugInfoOff parseDebugInfo
+  debugInfo <- subGet' bs debugInfoOff Nothing (Just <$> parseDebugInfo)
   -- insns <- either fail return $ decodeInstructions insnWords
   return CodeItem
            { codeRegs = regCount
