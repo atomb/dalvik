@@ -1,4 +1,4 @@
-module Dalvik.DebugInfo (executeInsns) where
+module Dalvik.DebugInfo (executeDebugInsns) where
 
 import qualified Data.ByteString.Char8 as CBS
 import Data.Int
@@ -93,14 +93,14 @@ executeInsn s i =
             addr' = dbgAddr s + (adjOpcode `div` dbgLineRange)
             p = PositionInfo addr' line'
 
-executeInsns :: DexFile
-             -> CodeItem
-             -> AccessFlags
-             -> MethodId
-             -> DebugState
-executeInsns _ (CodeItem { codeDebugInfo = Nothing }) _ _ =
+executeDebugInsns :: DexFile
+                  -> CodeItem
+                  -> AccessFlags
+                  -> MethodId
+                  -> DebugState
+executeDebugInsns _ (CodeItem { codeDebugInfo = Nothing }) _ _ =
   emptyDebugState
-executeInsns dex code@(CodeItem { codeDebugInfo = Just info }) flags mid =
+executeDebugInsns dex code@(CodeItem { codeDebugInfo = Just info }) flags mid =
   finishLocals lastAddr $
   foldl' executeInsn (initialDebugState info srcFile) (is reg0 params)
     where is _ [] = dbgByteCodes info

@@ -203,7 +203,7 @@ codeLines dex flags mid code = do
           insns = decodeInstructions insnUnits
           addr = codeInsnOff code
           nameAddr = addr - 16 -- Ick!
-          debugState = executeInsns dex code flags mid
+          debugState = executeDebugInsns dex code flags mid
           positionText = mapM_ ppos . reverse . dbgPositions $ debugState
           ppos (PositionInfo a l) = p $
             "        0x" +++ fixedHex 4 a +++

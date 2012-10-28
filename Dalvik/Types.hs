@@ -235,9 +235,9 @@ getClass :: DexFile -> TypeId -> Class
 getClass dex i = Map.findWithDefault (error msg) i (dexClasses dex)
   where msg = "Unknown type ID " ++ show i
 
-findString :: DexFile -> BS.ByteString -> StringId
+findString :: DexFile -> BS.ByteString -> Maybe StringId
 findString dex t =
   case filter isThis (Map.toList (dexStrings dex)) of
-    [(sid, _)] -> sid
-    _ -> error $ "Can't find StringId of " ++ show t
+    [(sid, _)] -> Just sid
+    _ -> Nothing
   where isThis (_, t') = t == t'

@@ -48,7 +48,7 @@ loadDex bs = do
             , dexFields = fields
             , dexMethods = methods
             , dexClasses = classes
-            , dexThisId = findString dex "this"
+            , dexThisId = maybe (-1) id $ findString dex "this"
             }
   return dex
 
