@@ -610,10 +610,10 @@ fst8, snd8 :: Word16 -> Word8
 fst8 = fst . splitWord16
 snd8 = snd . splitWord16
 
-combine16 :: (Integral a, Bits b) => a -> a -> b
+combine16 :: (Integral a, Num b, Bits b) => a -> a -> b
 combine16 w1 w2 = (fromIntegral w1 `shiftL` 16) .|. fromIntegral w2
 
-combine16' :: (Integral a, Bits b) => a -> a -> a -> a -> b
+combine16' :: (Integral a, Num b, Bits b) => a -> a -> a -> a -> b
 combine16' w1 w2 w3 w4 =
   (fromIntegral w1 `shiftL` 48) .|.
   (fromIntegral w2 `shiftL` 32) .|.
