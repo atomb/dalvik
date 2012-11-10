@@ -14,6 +14,9 @@ module Dalvik.Printer
 
 import Data.Bits
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy.Builder as B
+import qualified Data.ByteString.Lazy.Builder.ASCII as A
+import Data.ByteString.Lazy.Builder (Builder)
 import Data.Int
 import Data.List
 import Data.Monoid
@@ -21,20 +24,16 @@ import Data.Serialize.Get ( runGet )
 import Data.Serialize.Put ( runPut, putWord32le, putWord64le )
 import Data.Serialize.IEEE754 ( getFloat32le, getFloat64le )
 import Data.String
-import Blaze.ByteString.Builder
-import qualified Blaze.ByteString.Builder.Char8 as CB
-import Blaze.Text.Int
 import Data.Word
 import Text.FShow.RealFloat
 
-import Dalvik.HexPrint
 import Dalvik.Instruction
 import Dalvik.Types
 
 type Str = Builder
 
 instance IsString Builder where
-  fromString = fromByteString . fromString
+  fromString = B.string7
 
 (+++) :: (Monoid s) => s -> s -> s
 (+++) = mappend
@@ -44,7 +43,7 @@ lstr :: Int -> String -> String
 lstr n s = s ++ replicate (n - length s) ' '
 
 pSDI :: BS.ByteString -> Str
-pSDI = fromByteString
+pSDI = B.byteString
 
 squotes :: Str -> Str
 squotes s = mconcat [ "'",  s, "'" ]
@@ -55,9 +54,9 @@ mkInsn name args =
   mconcat [name, " ", mconcat $ intersperse ", " args]
 {-# INLINE mkInsn #-}
 
-mkInsn' :: (Show a, Integral a) => Str -> [a] -> Str
-mkInsn' name args = mkInsn name (map iregStr args)
-{-# INLINE mkInsn' #-}
+mkInsn'8 :: Str -> [Word8] -> Str
+mkInsn'8 name args = mkInsn name (map iregStr8 args)
+{-# INLINE mkInsn'8 #-}
 
 mkInsnb :: (Monoid s, IsString s) => s -> [s] -> [s] -> s
 mkInsnb name bargs args =
@@ -67,49 +66,57 @@ mkInsnb name bargs args =
 {-# INLINE mkInsnb #-}
 
 methodComm :: MethodId -> Str
-methodComm mid = " // method@" +++ fixedHex 4 mid
+methodComm mid = " // method@" +++ A.word16HexFixed mid
 
 typeComm :: TypeId -> Str
-typeComm tid = " // type@" +++ fixedHex 4 tid
+typeComm tid = " // type@" +++ A.word16HexFixed tid
 
 fieldComm :: FieldId -> Str
-fieldComm fid = " // field@" +++ fixedHex 4 fid
+fieldComm fid = " // field@" +++ A.word16HexFixed fid
 
 stringComm :: StringId -> Str
-stringComm sid = " // string@" +++ fixedHex 4 sid
+stringComm sid = " // string@" +++ A.word16HexFixed (fromIntegral sid)
 
-intComm8 :: Word32 -> Str
-intComm8 i = " // #" +++ fixedHex 2 i
+intComm8 :: Word8 -> Str
+intComm8 i = " // #" +++ A.word8Hex i
 
-intComm16 :: Word32 -> Str
-intComm16 i = " // #" +++ fixedHex 4 i
+intComm8' :: Word8 -> Str
+intComm8' i = " // #" +++ A.word8HexFixed i
+
+intComm16 :: Word16 -> Str
+intComm16 i = " // #" +++ A.word16Hex i
+
+intComm16' :: Word16 -> Str
+intComm16' i = " // #" +++ A.word16HexFixed i
 
 intComm32 :: Word32 -> Str
-intComm32 i = " // #" +++ fixedHex 8 i
+intComm32 i = " // #" +++ A.word32HexFixed i
 
 intComm64 :: Word64 -> Str
-intComm64 i = " // #" +++ fixedHex 16 i
+intComm64 i = " // #" +++ A.word64HexFixed i
 
-intComm :: (Integral a) => a -> Str
-intComm i = " // #" +++ hexadecimal i
+offComm :: Int16 -> Str
+offComm i = " // " +++ sign +++ A.int16HexFixed i'
+  where (sign, i') | i < 0 = ("-", -i)
+                   | otherwise = ("+", i)
 
-offComm :: (Integral a, Bits a) => a -> Str
-offComm i = " // " +++ sign +++ fixedHex 4 i'
-  where (i', sign) | i < 0 = (-(fromIntegral i :: Word16), "-")
-                   | otherwise = (fromIntegral i :: Word16, "+")
+offComm32 :: Int32 -> Str
+offComm32 i = " // " +++ A.int32HexFixed i
 
-offComm' :: (Integral a, Bits a) => a -> Str
-offComm' i = " // " +++ sign +++ fixedHex 8 i'
-  where (i', sign) | i < 0 = (-(fromIntegral i :: Word32), "-")
-                   | otherwise = (fromIntegral i :: Word32, "+")
-
+offComm' :: Word32 -> Str
+offComm' i = " // " +++ sign +++ A.word32HexFixed i'
+  where (sign, i') | i < 0 = ("-", -i)
+                   | otherwise = ("+", i)
 regStr :: Reg -> Str
-regStr (R4 r) = iregStr r
-regStr (R8 r) = iregStr r
-regStr (R16 r) = iregStr r
+regStr (R4 r) = iregStr8 r
+regStr (R8 r) = iregStr8 r
+regStr (R16 r) = iregStr16 r
 
-iregStr :: (Show a, Integral a) => a -> Str
-iregStr r = "v" +++ integral r
+iregStr8 :: Word8 -> Str
+iregStr8 r = "v" +++  A.word8Dec r
+
+iregStr16 :: Word16 -> Str
+iregStr16 r = "v" +++  A.word16Dec r
 
 moveTypeString :: (IsString s) => MoveType -> s
 moveTypeString MNormal = "move"
@@ -182,22 +189,22 @@ int64ToDouble =
 
 ffmt :: Float -> Builder
 ffmt f | isNaN f = "nan"
-       | otherwise = CB.fromString $ fshowFFloat (Just 6) (FF f) ""
+       | otherwise = B.string7 $ fshowFFloat (Just 6) (FF f) ""
 
 dfmt :: Double -> Builder
 dfmt d | isNaN d = "nan"
-       | otherwise = CB.fromString $ fshowFFloat (Just 6) (FD d) ""
+       | otherwise = B.string7 $ fshowFFloat (Just 6) (FD d) ""
 
 constString :: DexFile -> ConstArg -> Str
 constString _ (Const4 i) =
-  "#int " +++ integral i +++ intComm (fromIntegral i :: Word8)
+  "#int " +++ A.int8Dec (fromIntegral i) +++ intComm8 (fromIntegral i)
 constString _ (Const16 i) =
-  "#int " +++ integral i +++ intComm (fromIntegral i :: Word16)
+  "#int " +++ A.int16Dec (fromIntegral i) +++ intComm16 (fromIntegral i)
 constString _ (ConstHigh16 i) =
-  "#int " +++ integral i +++
-  intComm (fromIntegral (i `shiftR` 16) :: Word16)
+  "#int " +++ A.int32Dec i +++
+  intComm16 (fromIntegral (i `shiftR` 16) :: Word16)
 constString _ (ConstWide16 i) =
-  "#int " +++ integral i +++ intComm (fromIntegral i :: Word16)
+  "#int " +++ A.int64Dec i +++ intComm16 (fromIntegral i)
 constString _ (Const32 w) =
   -- dexdump always prints these as floats, even though they might not be.
   "#float " +++ ffmt (int32ToFloat w) +++ intComm32 (fromIntegral w :: Word32)
@@ -209,8 +216,8 @@ constString _ (ConstWide w) =
   -- dexdump always prints these as doubles, even though they might not be.
   "#double " +++ dfmt (int64ToDouble w) +++ intComm64 (fromIntegral w)
 constString _ (ConstWideHigh16 i) =
-  "#long " +++ integral i +++
-  intComm (fromIntegral (i `shiftR` 48) :: Word16)
+  "#long " +++ A.int64Dec i +++
+  intComm16 (fromIntegral (i `shiftR` 48) :: Word16)
 constString dex (ConstString sid) =
   "\"" +++ getStr' dex sid +++ "\"" +++ stringComm sid
 constString dex (ConstStringJumbo sid) =
@@ -241,17 +248,17 @@ ikindStr Interface = "interface"
 getStr' :: DexFile -> StringId -> Str
 getStr' _ sid | sid == -1 = "unknown"
 getStr' dex sid =
-  maybe ("<unknown string ID: " +++ integral sid +++ ">") pSDI $
+  maybe ("<unknown string ID: " +++ A.word32HexFixed sid +++ ">") pSDI $
   getStr dex sid
 
 getTypeName' :: DexFile -> TypeId -> Str
 getTypeName' dex tid =
-  maybe ("<unknown type ID: " +++ integral tid +++ ">") pSDI $
+  maybe ("<unknown type ID: " +++ A.word16HexFixed tid +++ ">") pSDI $
   getTypeName dex tid
 
 getTypeName'' :: DexFile -> TypeId -> Str
 getTypeName'' dex tid =
-  maybe ("<unknown type ID: " +++ integral tid +++ ">") (pSDI . tailSDI) $
+  maybe ("<unknown type ID: " +++ A.word16HexFixed tid +++ ">") (pSDI . tailSDI) $
   getTypeName dex tid
     where tailSDI = BS.map slashToDot . BS.init . BS.tail
           slashToDot 36 = 46
@@ -323,127 +330,129 @@ insnString dex _ (LoadConst d c@(ConstStringJumbo _)) =
   constStr dex "const-string/jumbo" d c
 insnString dex _ (LoadConst d c@(ConstClass _)) =
   constStr dex "const-class" d c
-insnString _ _ (MonitorEnter r) = "monitor-enter v" +++ integral r
-insnString _ _ (MonitorExit r) = "monitor-exit v" +++ integral r
+insnString _ _ (MonitorEnter r) = "monitor-enter v" +++ A.word8Dec r
+insnString _ _ (MonitorExit r) = "monitor-exit v" +++ A.word8Dec r
 insnString dex _ (CheckCast r tid) =
-  mconcat ["check-cast v", integral r,  ", ", getTypeName' dex tid] +++
+  mconcat ["check-cast v", A.word8Dec r,  ", ", getTypeName' dex tid] +++
   typeComm tid
 insnString dex _ (InstanceOf dst ref tid) =
   mkInsn "instance-of"
-         [ iregStr dst, iregStr ref, getTypeName' dex tid ] +++
+         [ iregStr8 dst, iregStr8 ref, getTypeName' dex tid ] +++
   typeComm tid
 insnString _ _ (ArrayLength dst ref) =
-  mkInsn' "array-length" [ dst, ref ]
+  mkInsn'8 "array-length" [ dst, ref ]
 insnString dex _ (NewInstance dst tid) =
-  mkInsn "new-instance" [ iregStr dst, getTypeName' dex tid ] +++
+  mkInsn "new-instance" [ iregStr8 dst, getTypeName' dex tid ] +++
   typeComm tid
 insnString dex _ (NewArray dst sz tid) =
   mkInsn "new-array"
-         [ iregStr dst, iregStr sz, getTypeName' dex tid ] +++
+         [ iregStr8 dst, iregStr8 sz, getTypeName' dex tid ] +++
   typeComm tid
 insnString dex _ (FilledNewArray tid rs) =
   mkInsnb "filled-new-array"
-          (map iregStr rs) [ getTypeName' dex tid ] +++
+          (map iregStr8 rs) [ getTypeName' dex tid ] +++
   typeComm tid
 insnString dex _ (FilledNewArrayRange tid rs) =
   mkInsnb "filled-new-array/range"
-          (map iregStr rs) [ getTypeName' dex tid ] +++
+          (map iregStr16 rs) [ getTypeName' dex tid ] +++
   typeComm tid
 insnString _ a (FillArrayData dst off) =
   mkInsn "fill-array-data"
-         [ iregStr dst, fixedHex 8 (a + fromIntegral off) ] +++
+         [ iregStr8 dst, A.word32HexFixed (a + fromIntegral off) ] +++
   offComm' off
-insnString _ _ (Throw r) = "throw v" +++ integral r
+insnString _ _ (Throw r) = "throw v" +++ A.word8Dec r
 insnString _ a (Goto off) =
-  "goto " +++ fixedHex 4 (fromIntegral (a + fromIntegral off) :: Word16) +++
+  "goto " +++ A.word16HexFixed (fromIntegral (a + fromIntegral off)) +++
   offComm (fromIntegral off :: Int16)
 insnString _ a (Goto16 off) =
-  "goto/16 " +++ fixedHex 4 (fromIntegral (a + fromIntegral off) :: Word16) +++
+  "goto/16 " +++ A.word16HexFixed (fromIntegral (a + fromIntegral off)) +++
   offComm off
 insnString _ a (Goto32 off) =
-  "goto/32 " +++ fixedHex 8 (fromIntegral (a + fromIntegral off) :: Word32) +++
-  offComm off
+  "goto/32 " +++ A.word32HexFixed (fromIntegral (a + fromIntegral off)) +++
+  offComm32 off
 insnString _ a (PackedSwitch r off) =
   mkInsn "packed-switch"
-         [ iregStr r, fixedHex 8 (a + fromIntegral off) ] +++
+         [ iregStr8 r, A.word32HexFixed (a + fromIntegral off) ] +++
   offComm' off
 insnString _ a (SparseSwitch r off) =
   mkInsn "sparse-switch"
-         [ iregStr r, fixedHex 8 (a + fromIntegral off) ] +++
+         [ iregStr8 r, A.word32HexFixed (a + fromIntegral off) ] +++
   offComm' off
 insnString _ _ (Cmp CLFloat dst r1 r2) =
-  mkInsn' "cmpl-float" [dst, r1, r2]
+  mkInsn'8 "cmpl-float" [dst, r1, r2]
 insnString _ _ (Cmp CGFloat dst r1 r2) =
-  mkInsn' "cmpg-float" [dst, r1, r2]
+  mkInsn'8 "cmpg-float" [dst, r1, r2]
 insnString _ _ (Cmp CLDouble dst r1 r2) =
-  mkInsn' "cmpl-double" [dst, r1, r2]
+  mkInsn'8 "cmpl-double" [dst, r1, r2]
 insnString _ _ (Cmp CGDouble dst r1 r2) =
-  mkInsn' "cmpg-double" [dst, r1, r2]
+  mkInsn'8 "cmpg-double" [dst, r1, r2]
 insnString _ _ (Cmp CLong dst r1 r2) =
-  mkInsn' "cmp-long" [dst, r1, r2]
+  mkInsn'8 "cmp-long" [dst, r1, r2]
 insnString _ a (If op r1 r2 off) =
   mkInsn ("if-" +++ ifOpStr op)
-         [ iregStr r1, iregStr r2, fixedHex 4 (a + fromIntegral off) ]
+         [ iregStr8 r1, iregStr8 r2
+         , A.word16HexFixed (fromIntegral (a + fromIntegral off))
+         ]
   +++ offComm off
 insnString _ a (IfZero op r off) =
   mkInsn ("if-" +++ ifOpStr op +++ "z")
-         [ iregStr r, fixedHex 4 (a + fromIntegral off) ]
+         [ iregStr8 r, A.word16HexFixed (fromIntegral (a + fromIntegral off)) ]
   +++ offComm off
 insnString _ _ (ArrayOp op val arr idx) =
-  mkInsn' ("a" +++ accessOpStr op) [ val, arr, idx ]
+  mkInsn'8 ("a" +++ accessOpStr op) [ val, arr, idx ]
 insnString dex _ (InstanceFieldOp op val obj fid) =
   mkInsn ("i" +++ accessOpStr op)
-         [ iregStr val, iregStr obj, fieldStr dex fid ]
+         [ iregStr8 val, iregStr8 obj, fieldStr dex fid ]
   +++ fieldComm fid
 insnString dex _ (StaticFieldOp op val fid) =
-  mkInsn ("s" +++ accessOpStr op) [ iregStr val, fieldStr dex fid ]
+  mkInsn ("s" +++ accessOpStr op) [ iregStr8 val, fieldStr dex fid ]
   +++ fieldComm fid
 insnString dex _ (Invoke kind range mid args) =
   mkInsn ("invoke-" +++
           ikindStr kind +++
           if range then "/range" else "")
          [ "{" +++
-           mconcat (intersperse  ", " (map iregStr args)) +++
+           mconcat (intersperse  ", " (map iregStr16 args)) +++
            "}"
          , methodStr' dex mid
          ] +++
   methodComm mid
 insnString _ _ (Unop op r1 r2) =
-  mkInsn' (unopStr op) [r1, r2]
+  mkInsn'8 (unopStr op) [r1, r2]
 insnString _ _ (IBinop op False dst r1 r2) =
-  mkInsn' (binopStr op +++ "-int") [ dst, r1, r2 ]
+  mkInsn'8 (binopStr op +++ "-int") [ dst, r1, r2 ]
 insnString _ _ (IBinop op True dst r1 r2) =
-  mkInsn' (binopStr op +++ "-long") [ dst, r1, r2 ]
+  mkInsn'8 (binopStr op +++ "-long") [ dst, r1, r2 ]
 insnString _ _ (FBinop op False dst r1 r2) =
-  mkInsn' (binopStr op +++ "-float") [ dst, r1, r2 ]
+  mkInsn'8 (binopStr op +++ "-float") [ dst, r1, r2 ]
 insnString _ _ (FBinop op True dst r1 r2) =
-  mkInsn' (binopStr op +++ "-double") [ dst, r1, r2 ]
+  mkInsn'8 (binopStr op +++ "-double") [ dst, r1, r2 ]
 insnString _ _ (IBinopAssign op False dst src) =
-  mkInsn' (binopStr op +++ "-int/2addr") [ dst, src ]
+  mkInsn'8 (binopStr op +++ "-int/2addr") [ dst, src ]
 insnString _ _ (IBinopAssign op True dst src) =
-  mkInsn' (binopStr op +++ "-long/2addr") [ dst, src ]
+  mkInsn'8 (binopStr op +++ "-long/2addr") [ dst, src ]
 insnString _ _ (FBinopAssign op False dst src) =
-  mkInsn' (binopStr op +++ "-float/2addr") [ dst, src ]
+  mkInsn'8 (binopStr op +++ "-float/2addr") [ dst, src ]
 insnString _ _ (FBinopAssign op True dst src) =
-  mkInsn' (binopStr op +++ "-double/2addr") [ dst, src ]
+  mkInsn'8 (binopStr op +++ "-double/2addr") [ dst, src ]
 insnString _ _ (BinopLit16 RSub dst src i) =
   mkInsn "rsub-int"
-         [iregStr dst, iregStr src, "#int " +++ integral i] +++
-  intComm16 (fromIntegral i)
+         [iregStr8 dst, iregStr8 src, "#int " +++ A.int16Dec i] +++
+  intComm16' (fromIntegral i)
 insnString _ _ (BinopLit16 op dst src i) =
   mkInsn (binopStr op +++ "-int/lit16")
-         [iregStr dst, iregStr src, "#int " +++ integral i] +++
-  intComm16 (fromIntegral i)
+         [iregStr8 dst, iregStr8 src, "#int " +++ A.int16Dec i] +++
+  intComm16' (fromIntegral i)
 insnString _ _ (BinopLit8 op dst src i) =
   mkInsn (binopStr op +++ "-int/lit8")
-         [iregStr dst, iregStr src, "#int " +++ integral i] +++
-  intComm8 (fromIntegral i)
+         [iregStr8 dst, iregStr8 src, "#int " +++ A.int8Dec i] +++
+  intComm8' (fromIntegral i)
 insnString _ _ i@(PackedSwitchData{}) =
-  "packed-switch-data (" +++ integral size +++ " units)"
+  "packed-switch-data (" +++ A.int32Dec (fromIntegral size) +++ " units)"
     where size = insnUnitCount i
 insnString _ _ i@(SparseSwitchData{}) =
-  "sparse-switch-data (" +++ integral size +++ " units)"
+  "sparse-switch-data (" +++ A.int32Dec (fromIntegral size) +++ " units)"
     where size = insnUnitCount i
 insnString _ _ i@(ArrayData{}) =
-  "array-data (" +++ integral size +++ " units)"
+  "array-data (" +++ A.int32Dec (fromIntegral size) +++ " units)"
     where size = insnUnitCount i

@@ -17,8 +17,6 @@ Library
 
     Build-Depends:  array,
                     base >= 3,
-                    blaze-builder,
-                    blaze-textual,
                     bytestring,
                     cereal,
                     conduit,
@@ -30,7 +28,6 @@ Library
     Exposed-Modules: Dalvik.AccessFlags
                      Dalvik.Apk
                      Dalvik.DebugInfo
-                     Dalvik.HexPrint
                      Dalvik.Instruction
                      Dalvik.LEB128
                      Dalvik.Parser
