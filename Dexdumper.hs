@@ -137,10 +137,14 @@ classLines dex (i, cls) = do
   p $ fldn32 "source_file_idx" $ classSourceNameId cls
   p $ fldx "annotations_off" $ classAnnotsOff cls
   p $ fldx "class_data_off" $ classDataOff cls
-  p $ fldn32 "static_fields_size" $ fromIntegral $ length (classStaticFields cls)
-  p $ fldn32 "instance_fields_size" $ fromIntegral $ length (classInstanceFields cls)
-  p $ fldn32 "direct_methods_size" $ fromIntegral $ length (classDirectMethods cls)
-  p $ fldn32 "virtual_methods_size" $ fromIntegral $ length (classVirtualMethods cls)
+  p $ fldn32 "static_fields_size" $
+      fromIntegral $ length (classStaticFields cls)
+  p $ fldn32 "instance_fields_size" $
+      fromIntegral $ length (classInstanceFields cls)
+  p $ fldn32 "direct_methods_size" $
+      fromIntegral $ length (classDirectMethods cls)
+  p $ fldn32 "virtual_methods_size" $
+      fromIntegral $ length (classVirtualMethods cls)
   p $ ""
   pl [ "Class #", A.word16Dec i, "            -" ]
   p $ fld "  Class descriptor" $ squotes $ getTypeName' dex (classId cls)
@@ -166,32 +170,42 @@ interfaceLines dex (n, i) =
   p $ fldbroken ("    #" ++ show n) (squotes (getTypeName' dex i))
 
 fieldLines :: DexFile -> (Word32, EncodedField) -> IO ()
-fieldLines dex (n, f) = do
-  pl [ "    #", A.word32Dec n
-     , "              : (in ", clsName, ")" ]
-  p $ fld "      name" . squotes . getStr' dex . fieldNameId $ field
-  p $ fld "      type" . squotes . getTypeName' dex . fieldTypeId $ field
-  p $ fldxs "      access"
-      (fieldAccessFlags f)
-      (flagsString AField (fieldAccessFlags f))
-    where field = getField dex i
-          clsName = getTypeName' dex . fieldClassId $ field
-          i = fieldId f
+fieldLines dex (n, f) =
+  case getField dex (fieldId f) of
+    Nothing ->
+      p $ "<unknown field ID: " +++ A.word16HexFixed (fieldId f) +++ ">"
+    Just field -> do
+      pl [ "    #", A.word32Dec n
+         , "              : (in ", clsName, ")" ]
+      p $ fld "      name" . squotes . getStr' dex . fieldNameId $ field
+      p $ fld "      type" . squotes . getTypeName' dex . fieldTypeId $ field
+      p $ fldxs "      access"
+          (fieldAccessFlags f)
+          (flagsString AField (fieldAccessFlags f))
+        where clsName = getTypeName' dex . fieldClassId $ field
 
 methodLines :: DexFile -> (Word32, EncodedMethod) -> IO ()
-methodLines dex (n, m) = do
-  pl [ "    #", A.word32Dec n , "              : (in " , clsName, ")" ]
-  p $ fld "      name" . squotes . getStr' dex . methNameId $ method
-  p $ fld "      type" $ squotes $ protoDesc dex proto
-  p $ fldxs "      access" flags (flagsString AMethod flags)
-  maybe (p "      code          : (none)" >> p "")
-        (codeLines dex flags i)
-        (methCode m)
-    where method = getMethod dex i
-          proto = getProto dex (methProtoId method)
-          flags = methAccessFlags m
-          clsName = getTypeName' dex . methClassId $ method
-          i = methId m
+methodLines dex (n, m) =
+  let mmeth = getMethod dex (methId m)
+      mproto :: Maybe Proto
+      mproto = join ((getProto dex . methProtoId) `fmap` mmeth) in
+  case (mmeth, mproto) of
+    (Just method, Just proto) -> do
+      pl [ "    #", A.word32Dec n , "              : (in " , clsName, ")" ]
+      p $ fld "      name" . squotes . getStr' dex . methNameId $ method
+      p $ fld "      type" $ squotes $ protoDesc dex proto
+      p $ fldxs "      access" flags (flagsString AMethod flags)
+      maybe (p "      code          : (none)" >> p "")
+            (codeLines dex flags (methId m))
+            (methCode m)
+        where flags = methAccessFlags m
+              clsName = getTypeName' dex . methClassId $ method
+    (Nothing, _) ->
+      p $ "<unknown method ID: " +++ A.word16HexFixed (methId m) +++ ">"
+    (Just method, Nothing) ->
+      p $ "<unknown prototype ID: " +++
+          A.word16HexFixed (methProtoId method) +++
+          ">"
 
 codeLines :: DexFile -> AccessFlags -> MethodId -> CodeItem -> IO ()
 codeLines dex flags mid code = do
@@ -201,11 +215,13 @@ codeLines dex flags mid code = do
   p $ fldn16 "      outs" $ codeOutSize code
   p $ fld "      insns size" $
     A.word32Dec (fromIntegral (length insnUnits)) +++ " 16-bit code units"
-  p $ word24HexFixed nameAddr +++ ":                                        |[" +++
-    word24HexFixed nameAddr +++ "] " +++ methodStr dex mid
+  p $ word24HexFixed nameAddr +++
+      ":                                        |[" +++
+      word24HexFixed nameAddr +++ "] " +++ methodStr dex mid
   insnText
+  let ntries = fromIntegral (length tries)
   p $ fld "      catches"
-      (if null tries then "(none)" else A.word32Dec (fromIntegral (length tries)))
+      (if null tries then "(none)" else A.word32Dec ntries)
   mapM_ (tryLines dex code) tries
   p $ fld "      positions" ""
   positionText
@@ -217,7 +233,8 @@ codeLines dex flags mid code = do
           insns = decodeInstructions insnUnits
           addr = codeInsnOff code
           nameAddr = addr - 16 -- Ick!
-          debugState = executeDebugInsns dex code flags mid
+          debugState = either (const emptyDebugState) id $
+                       executeDebugInsns dex code flags mid
           positionText = mapM_ ppos . reverse . dbgPositions $ debugState
           ppos (PositionInfo a l) = p $
             "        0x" +++ A.word16HexFixed (fromIntegral a) +++
@@ -246,10 +263,10 @@ codeLines dex flags mid code = do
 insnLines :: DexFile -> Word32 -> Word32 -> [Word16] -> [Instruction]
           -> IO ()
 insnLines _ _ _ [] [] = return ()
-insnLines _ _ _ [] is = error $ "Ran out of code units (" ++
-                      show is ++ " instructions left)"
-insnLines _ _ _ ws [] = error $ "Ran out of instructions (" ++
-                      show (length ws) ++ " code units left)"
+insnLines _ _ _ [] is = p . B.string7 $
+  "ERROR: No more code units (" ++ show is ++ " instructions left)"
+insnLines _ _ _ ws [] = p . B.string7 $
+  "ERROR: No more instructions (" ++ show (length ws) ++ " code units left)"
 insnLines dex addr off ws (i:is) = do
   pl [ word24HexFixed addr, ": "
      , unitStr, "|"
@@ -264,8 +281,9 @@ insnLines dex addr off ws (i:is) = do
           l = insnUnitCount i
           l' = fromIntegral l
           unitStr = mconcat . intersperse " " $ istrs'
-          showCodeUnit w = A.word8HexFixed (fromIntegral (w .&. 0x00FF)) +++
-                           A.word8HexFixed (fromIntegral $ ((w  .&. 0xFF00) `shiftR` 8))
+          showCodeUnit w =
+            A.word8HexFixed (fromIntegral (w .&. 0x00FF)) +++
+            A.word8HexFixed (fromIntegral $ ((w  .&. 0xFF00) `shiftR` 8))
           istr = insnString dex off i
 
 tryLines :: DexFile -> CodeItem -> TryItem -> IO ()
@@ -282,7 +300,8 @@ tryLines dex code try = do
              ] |
              (ty, addr) <- handlers
            ]
-  mapM_ (\addr -> p $ "          <any> -> 0x" +++ A.word16HexFixed (fromIntegral addr))
+  mapM_ (\addr -> p $ "          <any> -> 0x" +++
+                  A.word16HexFixed (fromIntegral addr))
         (mapMaybe chAllAddr catches)
     where end = tryStartAddr try + fromIntegral (tryInsnCount try)
           catches = filter

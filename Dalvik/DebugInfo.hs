@@ -1,4 +1,8 @@
-module Dalvik.DebugInfo (executeDebugInsns) where
+{-# LANGUAGE ViewPatterns #-}
+module Dalvik.DebugInfo
+  ( emptyDebugState
+  , executeDebugInsns
+  ) where
 
 import qualified Data.ByteString.Char8 as CBS
 import Data.Int
@@ -41,21 +45,23 @@ dbgLineRange = 15
 
 startLocal :: DebugState -> Word32 -> Int32 -> Int32 -> Int32
            -> DebugState
-startLocal s r nid tid sid = s { dbgLocals = Map.alter start r (dbgLocals s)
-                               , dbgSeqNo = n + 1
-                               }
-    where start (Just (LocalInfo 0 a' 0xFFFFFFFF nid' tid' sid' : ls))  =
+startLocal s r nid tid sid =
+  s { dbgLocals = Map.alter start r (dbgLocals s)
+    , dbgSeqNo = n + 1
+    }
+  where start (Just (LocalInfo 0 a' 0xFFFFFFFF nid' tid' sid' : ls))  =
             Just $ l' : LocalInfo n a' a nid' tid' sid' : ls
-          start (Just ls) = Just $ l' : ls
-          start Nothing = Just [l']
-          a = dbgAddr s
-          n = dbgSeqNo s
-          l' = LocalInfo 0 a 0xFFFFFFFF nid tid sid
+        start (Just ls) = Just $ l' : ls
+        start Nothing = Just [l']
+        a = dbgAddr s
+        n = dbgSeqNo s
+        l' = LocalInfo 0 a 0xFFFFFFFF nid tid sid
 
 endLocal :: DebugState -> Word32 -> DebugState
-endLocal s r = s { dbgLocals = Map.alter fixupEnd r (dbgLocals s)
-                 , dbgSeqNo = n + 1
-                 }
+endLocal s r =
+  s { dbgLocals = Map.alter fixupEnd r (dbgLocals s)
+    , dbgSeqNo = n + 1
+    }
   where fixupEnd (Just (LocalInfo _ a _ nid tid sid : ls)) =
           Just $ LocalInfo n a (dbgAddr s) nid tid sid : ls
         fixupEnd _ =
@@ -87,8 +93,9 @@ executeInsn s i =
                           , dbgEpilogueBegin = False
                           , dbgPositions = p : dbgPositions s
                           }
-      where adjOpcode = fromIntegral $
-                        fromIntegral op - fromEnum DBG_FIRST_SPECIAL
+      where adjOpcode =
+              fromIntegral $
+              fromIntegral op - fromEnum DBG_FIRST_SPECIAL
             line' = dbgLine s + dbgLineBase + (adjOpcode `mod` dbgLineRange)
             addr' = dbgAddr s + (adjOpcode `div` dbgLineRange)
             p = PositionInfo addr' line'
@@ -97,32 +104,38 @@ executeDebugInsns :: DexFile
                   -> CodeItem
                   -> AccessFlags
                   -> MethodId
-                  -> DebugState
-executeDebugInsns _ (CodeItem { codeDebugInfo = Nothing }) _ _ =
-  emptyDebugState
-executeDebugInsns dex code@(CodeItem { codeDebugInfo = Just info }) flags mid =
-  finishLocals lastAddr $
-  foldl' executeInsn (initialDebugState info srcFile) (is reg0 params)
-    where is _ [] = dbgByteCodes info
-          is r ((n, t) : rest) =
-            StartLocal r n (fromIntegral t) : is (r + pregs t) rest
-          hasThis = not $ hasAccessFlag ACC_STATIC flags
-          reg0 = fromIntegral (codeRegs code) - sum (map pregs ptypes)
-          pnames = (if hasThis then (thisNid :) else id)
-                   (dbgParamNames info)
-          ptypes = (if hasThis then (thisType :) else id) paramTypes
-          params = zip pnames ptypes
-          pregs tid =
-            case CBS.unpack `fmap` getTypeName dex tid of
-              Just "J" -> 2
-              Just "D" -> 2
-              _ -> 1
-          thisNid = fromIntegral . dexThisId $ dex
-          lastAddr = fromIntegral $ length (codeInsns code) - 1
-          paramTypes = protoParams . getProto dex . methProtoId $ meth
-          thisType = methClassId meth
-          meth = getMethod dex mid
-          srcFile = fromIntegral . classSourceNameId . getClass dex $ thisType
+                  -> Either String DebugState
+executeDebugInsns _ (codeDebugInfo -> Nothing) _ _ =
+  return emptyDebugState
+executeDebugInsns dex code@(codeDebugInfo -> Just info) flags mid = do
+  let toEither str a = maybe (Left str) Right a
+  meth <- toEither ("Unknown method ID " ++ show mid) (getMethod dex mid)
+  proto <- toEither ("No parameter types") (getProto dex (methProtoId meth))
+  let paramTypes = protoParams proto
+      thisType = methClassId meth
+  cls <- toEither ("Class of method not found") (getClass dex thisType)
+  let is _ [] = dbgByteCodes info
+      is r ((n, t) : rest) =
+        StartLocal r n (fromIntegral t) : is (r + pregs t) rest
+      hasThis = not $ hasAccessFlag ACC_STATIC flags
+      reg0 = fromIntegral (codeRegs code) - sum (map pregs ptypes)
+      pnames = (if hasThis then (thisNid :) else id)
+               (dbgParamNames info)
+      ptypes = (if hasThis then (thisType :) else id) paramTypes
+      params = zip pnames ptypes
+      pregs tid =
+        case CBS.unpack `fmap` getTypeName dex tid of
+          Just "J" -> 2
+          Just "D" -> 2
+          _ -> 1
+      thisNid = fromIntegral . dexThisId $ dex
+      lastAddr = fromIntegral $ length (codeInsns code) - 1
+      srcFile = fromIntegral . classSourceNameId $ cls
+  return $
+    finishLocals lastAddr $
+    foldl' executeInsn (initialDebugState info srcFile) (is reg0 params)
+executeDebugInsns _ _ _ _ =
+  Left "This should never happen (executeDebugInsns fallthrough)."
 
 finishLocals :: Word32 -> DebugState -> DebugState
 finishLocals lastAddr s =

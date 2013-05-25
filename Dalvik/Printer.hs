@@ -258,33 +258,44 @@ getTypeName' dex tid =
 
 getTypeName'' :: DexFile -> TypeId -> Str
 getTypeName'' dex tid =
-  maybe ("<unknown type ID: " +++ A.word16HexFixed tid +++ ">") (pSDI . tailSDI) $
-  getTypeName dex tid
+  maybe msg (pSDI . tailSDI) $ getTypeName dex tid
     where tailSDI = BS.map slashToDot . BS.init . BS.tail
           slashToDot 36 = 46
           slashToDot 47 = 46
           slashToDot c = c
+          msg = "<unknown type ID: " +++ A.word16HexFixed tid +++ ">"
 
 fieldStr :: DexFile -> FieldId -> Str
-fieldStr dex fid = classStr +++ "." +++ fldStr +++ ":" +++ descStr
-  where fld = getField dex fid
-        classStr = getTypeName' dex $ fieldClassId fld
-        fldStr = getStr' dex $ fieldNameId fld
-        descStr = getTypeName' dex $ fieldTypeId fld
+fieldStr dex fid =
+  case getField dex fid of
+    Nothing -> "<unknown field ID: " +++ A.word16HexFixed fid +++ ">"
+    Just fld ->
+      getTypeName' dex (fieldClassId fld) +++ "." +++
+      getStr' dex (fieldNameId fld) +++ ":" +++
+      getTypeName' dex (fieldTypeId fld)
+
+protoDesc' :: DexFile -> ProtoId -> Str
+protoDesc' dex pid =
+  case getProto dex pid of
+    Nothing -> "<unknown prototype ID: " +++ A.word16HexFixed pid +++ ">"
+    Just proto -> protoDesc dex proto
 
 methodStr :: DexFile -> MethodId -> Str
-methodStr dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
-  where meth = getMethod dex mid
-        classStr = getTypeName'' dex $ methClassId meth
-        nameStr = getStr' dex $ methNameId meth
-        descStr = protoDesc dex . getProto dex $ methProtoId meth
+methodStr dex mid =
+  case getMethod dex mid of
+    Nothing -> "<unknown method ID: " +++ A.word16HexFixed mid +++ ">"
+    Just meth -> getTypeName'' dex (methClassId meth) +++ "." +++
+                 getStr' dex (methNameId meth) +++ ":" +++
+                 protoDesc' dex (methProtoId meth)
 
 methodStr' :: DexFile -> MethodId -> Str
-methodStr' dex mid = classStr +++ "." +++ nameStr +++ ":" +++ descStr
-  where meth = getMethod dex mid
-        classStr = getTypeName' dex $ methClassId meth
-        nameStr = getStr' dex $ methNameId meth
-        descStr = protoDesc dex . getProto dex $ methProtoId meth
+methodStr' dex mid =
+  case getMethod dex mid of
+    Nothing -> "<unknown method ID: " +++ A.word16HexFixed mid +++ ">"
+    Just meth ->
+      getTypeName' dex (methClassId meth) +++ "." +++
+      getStr' dex (methNameId meth) +++ ":" +++
+      protoDesc' dex (methProtoId meth)
 
 protoDesc :: DexFile -> Proto -> Str
 protoDesc dex proto =

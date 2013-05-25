@@ -219,21 +219,17 @@ getTypeName :: DexFile -> TypeId -> Maybe BS.ByteString
 getTypeName dex i =
   getStr dex =<< Map.lookup i (dexTypeNames dex)
 
-getField :: DexFile -> FieldId -> Field
-getField dex i = Map.findWithDefault (error msg) i (dexFields dex)
-  where msg = "Unknown field ID " ++ show i
+getField :: DexFile -> FieldId -> Maybe Field
+getField dex i = Map.lookup i (dexFields dex)
 
-getMethod :: DexFile -> MethodId -> Method
-getMethod dex i = Map.findWithDefault (error msg) i (dexMethods dex)
-  where msg = "Unknown method ID " ++ show i
+getMethod :: DexFile -> MethodId -> Maybe Method
+getMethod dex i = Map.lookup i (dexMethods dex)
 
-getProto :: DexFile -> ProtoId -> Proto
-getProto dex i = Map.findWithDefault (error msg) i (dexProtos dex)
-  where msg = "Unknown prototype ID " ++ show i
+getProto :: DexFile -> ProtoId -> Maybe Proto
+getProto dex i = Map.lookup i (dexProtos dex)
 
-getClass :: DexFile -> TypeId -> Class
-getClass dex i = Map.findWithDefault (error msg) i (dexClasses dex)
-  where msg = "Unknown type ID " ++ show i
+getClass :: DexFile -> TypeId -> Maybe Class
+getClass dex i = Map.lookup i (dexClasses dex)
 
 findString :: DexFile -> BS.ByteString -> Maybe StringId
 findString dex t =
